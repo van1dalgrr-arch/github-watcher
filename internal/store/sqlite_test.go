@@ -62,9 +62,11 @@ func TestMigrateBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// имитируем базу из прошлой версии: без колонки body
-	if _, err := s.db.ExecContext(ctx, `ALTER TABLE events DROP COLUMN body`); err != nil {
-		t.Fatal(err)
+	// имитируем базу из первой версии: без колонок, добавленных позже
+	for _, col := range added {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE events DROP COLUMN `+col.name); err != nil {
+			t.Fatal(err)
+		}
 	}
 	_ = s.Close()
 
@@ -73,11 +75,11 @@ func TestMigrateBody(t *testing.T) {
 		t.Fatalf("миграция: %v", err)
 	}
 	defer func() { _ = s.Close() }()
-	if _, err := s.Save(ctx, []domain.Event{{SourceID: "p", Kind: domain.EventPush, Title: "Push", Body: "• abc fix", CreatedAt: time.Now()}}); err != nil {
+	if _, err := s.Save(ctx, []domain.Event{{SourceID: "p", Kind: domain.EventPush, Title: "Push", Body: "• abc fix", SHA: "abc", RunID: 7, CreatedAt: time.Now()}}); err != nil {
 		t.Fatal(err)
 	}
 	list, _ := s.List(ctx, Filter{})
-	if len(list) != 1 || list[0].Body != "• abc fix" {
-		t.Fatalf("body не сохранился: %+v", list)
+	if len(list) != 1 || list[0].Body != "• abc fix" || list[0].SHA != "abc" || list[0].RunID != 7 {
+		t.Fatalf("новые колонки не сохранились: %+v", list)
 	}
 }

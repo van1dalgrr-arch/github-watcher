@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -45,12 +46,18 @@ func TestTelegram(t *testing.T) {
 
 	tg := NewTelegram("TOKEN", "42")
 	tg.API = srv.URL
-	err := tg.Notify(context.Background(), domain.Event{Kind: domain.EventCIFailed, Repo: "me/app", Title: "CI <упал>", URL: "https://x"})
+	err := tg.Notify(context.Background(), Message{Kind: domain.EventCIFailed, Repo: "me/app", Title: "fix <bug>", Logs: "✗ test", URL: "https://x"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text, _ := got["text"].(string); !strings.Contains(text, "CI &lt;упал&gt;") || got["chat_id"] != "42" {
-		t.Fatalf("сообщение: %v", got)
+	text, _ := got["text"].(string)
+	for _, want := range []string{"❌ <b>CI УПАЛ</b>", "fix &lt;bug&gt;", `<pre><code class="language-ci">✗ test</code></pre>`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("в сообщении нет %q:\n%s", want, text)
+		}
+	}
+	if !strings.Contains(fmt.Sprint(got["reply_markup"]), "https://x") || got["chat_id"] != "42" {
+		t.Fatalf("кнопка или чат: %v", got)
 	}
 
 	chats, err := tg.ChatIDs(context.Background())
@@ -60,7 +67,26 @@ func TestTelegram(t *testing.T) {
 
 	bad := NewTelegram("WRONG", "42")
 	bad.API = srv.URL
-	if err := bad.Notify(context.Background(), domain.Event{}); err == nil || !strings.Contains(err.Error(), "Unauthorized") {
+	if err := bad.Notify(context.Background(), Message{}); err == nil || !strings.Contains(err.Error(), "Unauthorized") {
 		t.Fatalf("ошибка API должна дойти до вызывающего: %v", err)
+	}
+}
+
+func TestCompose(t *testing.T) {
+	events := []domain.Event{
+		{Kind: domain.EventPush, Repo: "me/app", Actor: "me", Title: "main: 2 коммита", Body: "• abc fix", URL: "https://compare", SHA: "abc"},
+		{Kind: domain.EventCIPassed, Repo: "me/app", Title: "ci", URL: "https://run/1", SHA: "abc", RunID: 1},
+		{Kind: domain.EventCIFailed, Repo: "me/app", Title: "lint", URL: "https://run/2", SHA: "abc", RunID: 2},
+	}
+	m := Compose(events, map[int64]string{1: "✓ test", 2: "✗ lint"})
+	if m.Kind != domain.EventCIFailed || !m.Push || m.Title != "main: 2 коммита" || m.URL != "https://compare" || m.LogsURL != "https://run/2" {
+		t.Fatalf("склейка: %+v", m)
+	}
+	if m.Logs != "✓ test\n\n✗ lint" {
+		t.Fatalf("логи: %q", m.Logs)
+	}
+	text := Render(m)
+	if !strings.HasPrefix(text, "❌ <b>ПУШ · CI УПАЛ</b>") || !strings.Contains(text, "language-git") {
+		t.Fatalf("сообщение:\n%s", text)
 	}
 }

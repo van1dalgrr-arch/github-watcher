@@ -56,7 +56,6 @@ func New() *cobra.Command {
 		daemonCmd(&cfg),
 		telegramCmd(&cfg),
 		notifyCmd(&cfg),
-		botCmd(&cfg),
 		statusCmd(&cfg),
 		eventsCmd(&cfg),
 		repoCmd(&cfg),

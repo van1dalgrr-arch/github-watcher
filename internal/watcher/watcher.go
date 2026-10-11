@@ -104,18 +104,89 @@ func (w *Watcher) tick(ctx context.Context) (saved, sent int, err error) {
 		return len(fresh), 0, err
 	}
 	var done []int64
+	var send []domain.Event
 	for _, e := range pending {
 		// История первого запуска и собственные действия на телефон не шлём — только в ленту.
 		// Исключение — пуши: статистика своего пуша в боте и есть смысл уведомления.
 		own := e.Actor == me && e.Kind != domain.EventPush
-		if !firstRun && !own && w.Rules.Match(e) {
-			if err := w.Notifier.Notify(ctx, e); err != nil {
-				w.Log.Warn("notify", "event", e.SourceID, "err", err)
-				continue // не помечаем — повторим на следующем тике
-			}
-			sent++
+		if firstRun || own || !w.Rules.Match(e) {
+			done = append(done, e.ID)
+			continue
 		}
-		done = append(done, e.ID)
+		send = append(send, e)
+	}
+
+	for _, batch := range byCommit(send) {
+		if w.waitForCI(ctx, batch) {
+			continue // пуш придержали до конца его CI — уйдут одним сообщением
+		}
+		logs := map[int64]string{}
+		for _, e := range batch {
+			if e.RunID != 0 {
+				if r, err := w.GH.RunReport(ctx, e.Repo, e.RunID); err == nil {
+					logs[e.RunID] = r
+				}
+			}
+		}
+		if err := w.Notifier.Notify(ctx, notify.Compose(batch, logs)); err != nil {
+			w.Log.Warn("notify", "event", batch[0].SourceID, "err", err)
+			continue // не помечаем — повторим на следующем тике
+		}
+		sent++
+		for _, e := range batch {
+			done = append(done, e.ID)
+		}
 	}
 	return len(fresh), sent, w.Store.MarkNotified(ctx, done)
+}
+
+// byCommit группирует пуш и CI одного коммита; остальные события — по одному. Порядок сохраняется.
+func byCommit(events []domain.Event) [][]domain.Event {
+	var out [][]domain.Event
+	at := map[string]int{}
+	for _, e := range events {
+		groupable := e.SHA != "" && (e.Kind == domain.EventPush || e.Kind == domain.EventCIPassed || e.Kind == domain.EventCIFailed)
+		if !groupable {
+			out = append(out, []domain.Event{e})
+			continue
+		}
+		key := e.Repo + "@" + e.SHA
+		if i, ok := at[key]; ok {
+			out[i] = append(out[i], e)
+			continue
+		}
+		at[key] = len(out)
+		out = append(out, []domain.Event{e})
+	}
+	return out
+}
+
+// holdPush — сколько ждать CI, чтобы прислать пуш вместе с результатом. Меньше окна перекрытия
+// store.Memory (15 мин): иначе придержанный пуш выпал бы из следующего запроса.
+const holdPush = 10 * time.Minute
+
+// waitForCI — true, если в пачке пуш без результата CI, а CI по этому коммиту ещё идёт.
+func (w *Watcher) waitForCI(ctx context.Context, batch []domain.Event) bool {
+	var push *domain.Event
+	for i := range batch {
+		switch batch[i].Kind {
+		case domain.EventCIPassed, domain.EventCIFailed:
+			return false
+		case domain.EventPush:
+			push = &batch[i]
+		}
+	}
+	if push == nil || time.Since(push.CreatedAt) > holdPush {
+		return false
+	}
+	runs, err := w.GH.WorkflowRuns(ctx, push.Repo)
+	if err != nil {
+		return false
+	}
+	for _, r := range runs {
+		if r.HeadSHA == push.SHA && r.Status != "completed" && (r.Event == "push" || r.Event == "pull_request") {
+			return true
+		}
+	}
+	return false
 }

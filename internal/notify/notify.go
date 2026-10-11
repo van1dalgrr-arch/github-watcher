@@ -9,7 +9,7 @@ import (
 )
 
 type Notifier interface {
-	Notify(ctx context.Context, e domain.Event) error
+	Notify(ctx context.Context, m Message) error
 }
 
 // Rules — какие события слать на телефон (остальные только в ленте TUI).
@@ -35,7 +35,7 @@ func ParseRules(kinds, repos string) Rules {
 			r.Kinds[k] = true
 		}
 	case "all":
-		for k := range icons {
+		for k := range heads {
 			r.Kinds[k] = true
 		}
 	default:
@@ -56,4 +56,52 @@ func (r Rules) Match(e domain.Event) bool {
 		return false
 	}
 	return len(r.Repos) == 0 || r.Repos[e.Repo]
+}
+
+// Message — одно уведомление. Пуш и CI того же коммита склеиваются в одно сообщение (Compose).
+type Message struct {
+	Kind    domain.EventKind // определяет заголовок; у склейки — результат CI
+	Push    bool             // в сообщении есть пуш (у склейки заголовок «ПУШ · CI …»)
+	Repo    string
+	Actor   string
+	Title   string // описание: что за коммит / PR / issue
+	Body    string // подробности пуша: коммиты и файлы
+	Logs    string // отчёт CI: job-ы, шаги, ошибка
+	URL     string // «Открыть на GitHub»
+	LogsURL string // «Логи CI», если отличается от URL
+}
+
+// Compose собирает сообщение из событий одного коммита (или из одного события).
+// logs — отчёты CI по RunID, их заранее готовит watcher.
+func Compose(events []domain.Event, logs map[int64]string) Message {
+	var m Message
+	var reports []string
+	for _, e := range events {
+		switch e.Kind {
+		case domain.EventPush:
+			m.Push = true
+			m.Repo, m.Actor, m.Title, m.Body, m.URL = e.Repo, e.Actor, e.Title, e.Body, e.URL
+			if m.Kind == "" {
+				m.Kind = domain.EventPush
+			}
+		case domain.EventCIPassed, domain.EventCIFailed:
+			if m.Kind != domain.EventCIFailed { // хоть один упавший — всё сообщение «упал»
+				m.Kind = e.Kind
+				m.LogsURL = e.URL
+			}
+			if r := logs[e.RunID]; r != "" {
+				reports = append(reports, r)
+			}
+			if !m.Push {
+				m.Repo, m.Title, m.URL = e.Repo, e.Title, e.URL
+			}
+		default:
+			m = Message{Kind: e.Kind, Repo: e.Repo, Actor: e.Actor, Title: e.Title, Body: e.Body, URL: e.URL}
+		}
+	}
+	m.Logs = strings.Join(reports, "\n\n")
+	if m.LogsURL == m.URL {
+		m.LogsURL = ""
+	}
+	return m
 }

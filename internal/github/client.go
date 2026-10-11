@@ -437,6 +437,10 @@ func (c *client) recentRuns(ctx context.Context, since time.Time) ([]domain.Even
 			if run.Status != "completed" || !run.UpdatedAt.After(since) {
 				continue
 			}
+			// только CI на код: запуски по расписанию, вручную и цепочки (сам notify) — шум
+			if run.Event != "push" && run.Event != "pull_request" {
+				continue
+			}
 			kind, verb := domain.EventCIPassed, "прошёл"
 			switch domain.RunState(run.Status, run.Conclusion) {
 			case "failure":
@@ -449,6 +453,8 @@ func (c *client) recentRuns(ctx context.Context, since time.Time) ([]domain.Even
 				Kind:      kind,
 				Repo:      run.Repo,
 				Title:     fmt.Sprintf("CI %s: %s · %s (%s)", verb, run.Name, run.Title, run.Branch),
+				SHA:       run.HeadSHA,
+				RunID:     run.ID,
 				URL:       run.URL,
 				CreatedAt: run.UpdatedAt,
 			})
@@ -567,7 +573,7 @@ func (c *client) convertEvent(ctx context.Context, e *gh.Event) (domain.Event, b
 		}
 		branch := strings.TrimPrefix(p.GetRef(), "refs/heads/")
 		st := c.pushStats(ctx, ev.Repo, p.GetBefore(), p.GetHead())
-		ev.Kind = domain.EventPush
+		ev.Kind, ev.SHA = domain.EventPush, p.GetHead()
 		ev.Title, ev.Body = st.render(branch)
 		if st.url != "" {
 			ev.URL = st.url
@@ -750,4 +756,99 @@ func (st pushStats) render(branch string) (title, body string) {
 		fmt.Fprintf(&b, "+%d −%d  %s%s\n", f.add, f.del, f.name, mark)
 	}
 	return title, strings.TrimRight(b.String(), "\n")
+}
+
+// RunReport — отчёт о запуске для уведомления, как в терминале: job-ы и шаги с ✓/✗ и временем,
+// у упавших — строки лога вокруг ошибки. Логи качаются только для упавших job-ов.
+func (c *client) RunReport(ctx context.Context, repo string, runID int64) (string, error) {
+	owner, name, err := split(repo)
+	if err != nil {
+		return "", err
+	}
+	jobs, _, err := c.gh.Actions.ListWorkflowJobs(ctx, owner, name, runID, &gh.ListWorkflowJobsOptions{
+		ListOptions: gh.ListOptions{PerPage: 50},
+	})
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, j := range jobs.Jobs {
+		fmt.Fprintf(&b, "%s %s  %s\n", mark(j.GetConclusion()), j.GetName(),
+			dur(j.GetStartedAt().Time, j.GetCompletedAt().Time))
+		failed := false
+		for _, s := range j.Steps {
+			if boringStep(s.GetName()) && s.GetConclusion() == "success" {
+				continue
+			}
+			fmt.Fprintf(&b, "  %s %s  %s\n", mark(s.GetConclusion()), s.GetName(),
+				dur(s.GetStartedAt().Time, s.GetCompletedAt().Time))
+			failed = failed || s.GetConclusion() == "failure"
+		}
+		if failed {
+			if text, err := c.jobLog(ctx, owner, name, j.GetID()); err == nil {
+				for _, l := range errorContext(text) {
+					b.WriteString("    │ " + l + "\n")
+				}
+			}
+		}
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+func mark(conclusion string) string {
+	switch conclusion {
+	case "success":
+		return "✓"
+	case "skipped", "neutral":
+		return "–"
+	case "cancelled":
+		return "⊘"
+	case "":
+		return "…"
+	default:
+		return "✗"
+	}
+}
+
+// boringStep — служебные шаги, которые есть в любом job-е.
+func boringStep(name string) bool {
+	return name == "Set up job" || name == "Complete job" || strings.HasPrefix(name, "Post ")
+}
+
+func dur(from, to time.Time) string {
+	if from.IsZero() || to.IsZero() {
+		return ""
+	}
+	d := to.Sub(from).Round(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%dс", int(d.Seconds()))
+	}
+	return fmt.Sprintf("%dм %dс", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+// errorContext — до 12 строк лога, ведущих к первой ошибке, без служебной разметки Actions.
+func errorContext(log string) []string {
+	var lines []string
+	errAt := -1
+	for l := range strings.Lines(log) {
+		l = strings.TrimRight(l, "\r\n")
+		switch {
+		case strings.HasPrefix(l, "##[group]"), strings.HasPrefix(l, "##[endgroup]"), strings.HasPrefix(l, "##[command]"):
+			continue
+		case strings.HasPrefix(l, "##[error]"):
+			l = "✗ " + strings.TrimPrefix(l, "##[error]")
+			if errAt < 0 {
+				errAt = len(lines)
+			}
+		case errAt < 0 && (strings.Contains(l, "--- FAIL") || strings.HasPrefix(l, "FAIL") || strings.HasPrefix(l, "panic:")):
+			errAt = len(lines)
+		}
+		lines = append(lines, l)
+	}
+	if errAt < 0 {
+		errAt = len(lines) - 1
+	}
+	from := max(errAt-9, 0)
+	to := min(errAt+3, len(lines))
+	return lines[from:to]
 }

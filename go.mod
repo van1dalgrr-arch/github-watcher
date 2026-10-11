@@ -8,9 +8,9 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/gin-gonic/gin v1.12.0
-	github.com/go-telegram/bot v1.27.0
 	github.com/google/go-github/v92 v92.0.0
 	github.com/spf13/cobra v1.10.2
+	gopkg.in/telebot.v4 v4.0.0-beta.10
 	modernc.org/sqlite v1.60.1
 )
 

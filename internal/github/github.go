@@ -17,6 +17,7 @@ type Client interface {
 	Issues(ctx context.Context, repo string, state string) ([]domain.Issue, error)
 	WorkflowRuns(ctx context.Context, repo string) ([]domain.WorkflowRun, error)
 	RunLogs(ctx context.Context, repo string, runID int64) (string, error)
+	RunReport(ctx context.Context, repo string, runID int64) (string, error) // сжатый отчёт для уведомления
 
 	// действия
 	MergePR(ctx context.Context, repo string, number int, method string) error

@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS events (
     title      TEXT    NOT NULL,
     body       TEXT    NOT NULL DEFAULT '', -- подробности (для пуша — коммиты и файлы)
     url        TEXT    NOT NULL DEFAULT '',
+    sha        TEXT    NOT NULL DEFAULT '', -- коммит: пуш и его CI склеиваются в одно уведомление
+    run_id     INTEGER NOT NULL DEFAULT 0,  -- запуск Actions
     created_at INTEGER NOT NULL,          -- unix ms, UTC
     notified   INTEGER NOT NULL DEFAULT 0
 );

@@ -104,7 +104,10 @@ type Event struct {
 	Repo      string    `json:"repo"`
 	Actor     string    `json:"actor,omitempty"`
 	Title     string    `json:"title"`
-	Body      string    `json:"body,omitempty"` // подробности: для пуша — коммиты и файлы с +/−
+	Body      string    `json:"body,omitempty"`   // подробности: для пуша — коммиты и файлы с +/−
+	SHA       string    `json:"sha,omitempty"`    // коммит: по нему пуш и его CI склеиваются в одно уведомление
+	RunID     int64     `json:"run_id,omitempty"` // запуск Actions — для логов в уведомлении
+	Logs      string    `json:"-"`                // отчёт CI для уведомления; собирается перед отправкой, не хранится
 	URL       string    `json:"url,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	Notified  bool      `json:"notified"`

@@ -96,8 +96,8 @@ func runDaemon(ctx context.Context, cfg config.Config) error {
 	return nil
 }
 
-// eventTest — пробное событие для `gw telegram --test`.
-var eventTest = domain.Event{
+// eventTest — пробное сообщение для `gw telegram`.
+var eventTest = notify.Message{
 	Kind:  domain.EventDaemonInfo,
 	Repo:  "gw",
 	Title: "Связь есть! Сюда будут приходить события из GitHub.",

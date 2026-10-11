@@ -8,6 +8,7 @@ import (
 	"html"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
@@ -25,49 +26,88 @@ func NewTelegram(token, chatID string) *Telegram {
 	return &Telegram{Token: token, ChatID: chatID, HTTP: &http.Client{Timeout: 15 * time.Second}, API: "https://api.telegram.org"}
 }
 
-var icons = map[domain.EventKind]string{
-	domain.EventPROpened:   "🟢",
-	domain.EventPRMerged:   "🟣",
-	domain.EventPRReview:   "👀",
-	domain.EventIssue:      "📌",
-	domain.EventComment:    "💬",
-	domain.EventCIFailed:   "🔴",
-	domain.EventCIPassed:   "✅",
-	domain.EventRelease:    "🚀",
-	domain.EventPush:       "⬆️",
-	domain.EventMention:    "🔔",
-	domain.EventStar:       "⭐",
-	domain.EventDaemonInfo: "⚙️",
+// heads — крупная строка сверху: что случилось.
+var heads = map[domain.EventKind]struct{ icon, label string }{
+	domain.EventPROpened:   {"🟢", "НОВЫЙ PULL REQUEST"},
+	domain.EventPRMerged:   {"🟣", "PULL REQUEST СМЁРЖЕН"},
+	domain.EventPRReview:   {"👀", "РЕВЬЮ"},
+	domain.EventIssue:      {"📌", "ISSUE"},
+	domain.EventComment:    {"💬", "КОММЕНТАРИЙ"},
+	domain.EventCIFailed:   {"❌", "CI УПАЛ"},
+	domain.EventCIPassed:   {"✅", "CI ПРОШЁЛ"},
+	domain.EventRelease:    {"🚀", "РЕЛИЗ"},
+	domain.EventPush:       {"⬆️", "ПУШ"},
+	domain.EventMention:    {"🔔", "УПОМИНАНИЕ"},
+	domain.EventStar:       {"⭐", "НОВАЯ ЗВЕЗДА"},
+	domain.EventDaemonInfo: {"⚙️", "GW"},
 }
 
-func Icon(k domain.EventKind) string {
-	if i, ok := icons[k]; ok {
-		return i
+func head(m Message) string {
+	h, ok := heads[m.Kind]
+	if !ok {
+		h = heads[domain.EventDaemonInfo]
 	}
-	return "•"
+	label := h.label
+	if m.Push && m.Kind != domain.EventPush { // склейка пуша с его CI
+		label = "ПУШ · " + label
+	}
+	return h.icon + " <b>" + label + "</b>"
 }
 
-func (t *Telegram) Notify(ctx context.Context, e domain.Event) error {
-	text := fmt.Sprintf("%s <b>%s</b>\n%s", Icon(e.Kind), html.EscapeString(e.Repo), html.EscapeString(e.Title))
-	if e.Body != "" {
-		body := e.Body
-		if r := []rune(body); len(r) > 3000 { // лимит сообщения Telegram — 4096 символов
-			body = string(r[:3000]) + "…"
-		}
-		text += "\n\n<pre>" + html.EscapeString(body) + "</pre>"
+// Render — HTML сообщения: событие → где → описание → коммиты → отчёт CI. Кнопки — отдельно.
+func Render(m Message) string {
+	var b strings.Builder
+	b.WriteString(head(m))
+	b.WriteString("\n<b>" + html.EscapeString(m.Repo) + "</b>")
+	if m.Actor != "" {
+		b.WriteString(" · <i>@" + html.EscapeString(m.Actor) + "</i>")
 	}
-	if e.Actor != "" {
-		text += "\n<i>" + html.EscapeString(e.Actor) + "</i>"
+	if m.Title != "" {
+		b.WriteString("\n\n" + html.EscapeString(m.Title))
 	}
-	if e.URL != "" {
-		text += fmt.Sprintf("\n<a href=\"%s\">Открыть на GitHub</a>", html.EscapeString(e.URL))
+	// лимит Telegram — 4096 видимых символов на сообщение: делим между блоками
+	if m.Body != "" {
+		b.WriteString("\n\n" + block("git", m.Body, 1400))
 	}
-	return t.call(ctx, "sendMessage", map[string]any{
-		"chat_id":                  t.ChatID,
-		"text":                     text,
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
-	}, nil)
+	if m.Logs != "" {
+		b.WriteString("\n\n" + block("ci", m.Logs, 2000))
+	}
+	return b.String()
+}
+
+// block — моноширинный блок с подписью, как кусок терминала.
+func block(lang, text string, limit int) string {
+	if r := []rune(text); len(r) > limit {
+		text = string(r[:limit]) + "\n…"
+	}
+	return `<pre><code class="language-` + lang + `">` + html.EscapeString(text) + "</code></pre>"
+}
+
+func buttons(m Message) map[string]any {
+	var row []map[string]string
+	if m.URL != "" {
+		row = append(row, map[string]string{"text": "Открыть на GitHub", "url": m.URL})
+	}
+	if m.LogsURL != "" {
+		row = append(row, map[string]string{"text": "Логи CI", "url": m.LogsURL})
+	}
+	if len(row) == 0 {
+		return nil
+	}
+	return map[string]any{"inline_keyboard": [][]map[string]string{row}}
+}
+
+func (t *Telegram) Notify(ctx context.Context, m Message) error {
+	body := map[string]any{
+		"chat_id":              t.ChatID,
+		"text":                 Render(m),
+		"parse_mode":           "HTML",
+		"link_preview_options": map[string]bool{"is_disabled": true},
+	}
+	if kb := buttons(m); kb != nil {
+		body["reply_markup"] = kb
+	}
+	return t.call(ctx, "sendMessage", body, nil)
 }
 
 // ChatIDs возвращает чаты, которые недавно писали боту, — так узнаём свой chat id без ручного поиска.
@@ -139,4 +179,4 @@ func scrub(err error, token string) error {
 // Nop — когда Telegram не настроен: события копятся в ленте, на телефон ничего не уходит.
 type Nop struct{}
 
-func (Nop) Notify(context.Context, domain.Event) error { return nil }
+func (Nop) Notify(context.Context, Message) error { return nil }

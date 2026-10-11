@@ -50,7 +50,8 @@ func telegramCmd(cfg *config.Config) *cobra.Command {
 	return cmd
 }
 
-// sendDemo шлёт свежие события из GitHub — по одному каждого вида, самые новые.
+// sendDemo шлёт свежие события из GitHub в боевом формате: последний пуш вместе с его CI
+// и по одному событию других видов.
 func sendDemo(ctx context.Context, cfg *config.Config, tg *notify.Telegram) error {
 	gh, err := github.New(cfg.GitHubToken)
 	if err != nil {
@@ -60,16 +61,38 @@ func sendDemo(ctx context.Context, cfg *config.Config, tg *notify.Telegram) erro
 	if err != nil {
 		return err
 	}
+	ci := map[string][]domain.Event{} // CI по коммитам — чтобы приклеить к пушу
+	for _, e := range events {
+		if e.SHA != "" && (e.Kind == domain.EventCIPassed || e.Kind == domain.EventCIFailed) {
+			ci[e.Repo+"@"+e.SHA] = append(ci[e.Repo+"@"+e.SHA], e)
+		}
+	}
 	seen := map[domain.EventKind]bool{}
 	sent := 0
-	for i := len(events) - 1; i >= 0 && sent < 6; i-- { // EventsSince отдаёт от старых к новым
+	for i := len(events) - 1; i >= 0 && sent < 4; i-- { // EventsSince отдаёт от старых к новым
 		e := events[i]
 		if seen[e.Kind] {
 			continue
 		}
 		seen[e.Kind] = true
-		e.Title = "[демо] " + e.Title
-		if err := tg.Notify(ctx, e); err != nil {
+		batch := []domain.Event{e}
+		if e.Kind == domain.EventPush {
+			batch = append(batch, ci[e.Repo+"@"+e.SHA]...)
+			for _, c := range ci[e.Repo+"@"+e.SHA] {
+				seen[c.Kind] = true // этот CI уже в сообщении о пуше
+			}
+		}
+		logs := map[int64]string{}
+		for _, b := range batch {
+			if b.RunID != 0 {
+				if r, err := gh.RunReport(ctx, b.Repo, b.RunID); err == nil {
+					logs[b.RunID] = r
+				}
+			}
+		}
+		m := notify.Compose(batch, logs)
+		m.Title = "[демо] " + m.Title
+		if err := tg.Notify(ctx, m); err != nil {
 			return err
 		}
 		sent++

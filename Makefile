@@ -1,23 +1,18 @@
-.PHONY: help run dev test lint up down build migrate-up migrate-down
-DATABASE_URL ?= postgres://postgres:postgres@localhost:5432/app?sslmode=disable
+.PHONY: help run daemon test lint vuln build install
 
-help:  ## эта справка
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  \033[35m%-13s\033[0m %s\n", $$1, $$2}'
-run:   ## запустить локально
-	go run ./cmd/api
-dev:   ## hot reload (air)
-	air
-test:  ## тесты с детектором гонок
+help:    ## эта справка
+	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  \033[35m%-9s\033[0m %s\n", $$1, $$2}'
+run:     ## открыть TUI
+	go run ./cmd/gw
+daemon:  ## запустить демона
+	go run ./cmd/gw daemon
+test:    ## тесты с детектором гонок
 	go test -race -count=1 ./...
-lint:  ## golangci-lint
+lint:    ## golangci-lint
 	golangci-lint run ./...
-up:    ## всё в Docker: база + приложение
-	docker compose up -d --build
-down:  ## остановить
-	docker compose down
-build: ## бинарник в bin/
-	CGO_ENABLED=0 go build -o bin/app ./cmd/api
-migrate-up:   ## применить миграции
-	migrate -path migrations -database "$(DATABASE_URL)" up
-migrate-down: ## откатить последнюю
-	migrate -path migrations -database "$(DATABASE_URL)" down 1
+vuln:    ## уязвимости в зависимостях
+	govulncheck ./...
+build:   ## бинарник в bin/
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/gw ./cmd/gw
+install: ## поставить gw в $GOPATH/bin — команда доступна из любой папки
+	CGO_ENABLED=0 go install -trimpath -ldflags="-s -w" ./cmd/gw

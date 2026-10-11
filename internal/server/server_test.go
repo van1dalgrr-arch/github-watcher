@@ -1,4 +1,4 @@
-package handler
+package server
 
 import (
 	"context"
@@ -28,7 +28,7 @@ func TestHealth(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := gin.New()
-			Register(r, fakeDB{tt.err})
+			Register(r, Deps{DB: fakeDB{tt.err}})
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
 			if w.Code != tt.want {

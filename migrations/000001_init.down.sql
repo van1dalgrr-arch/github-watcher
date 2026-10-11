@@ -1,2 +1,0 @@
--- откат первой миграции
--- DROP TABLE IF EXISTS items;

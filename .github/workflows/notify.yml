@@ -1,0 +1,41 @@
+# Уведомления на телефон без своего сервера: каждые 30 минут `gw notify` проверяет GitHub,
+# шлёт новое в Telegram и выходит. Состояние — в переменной репозитория GW_STATE.
+#
+# Секреты (Settings → Secrets and variables → Actions):
+#   GW_GITHUB_TOKEN     — токен с доступом к твоим репозиториям и уведомлениям (gh auth token)
+#   TELEGRAM_BOT_TOKEN  — от @BotFather
+#   TELEGRAM_CHAT_ID    — gw telegram <token> покажет и сохранит
+#
+# Раз в 30 минут — чтобы приватный репо уложился в бесплатные 2000 минут Actions в месяц
+# (48 запусков в день × ~1 мин). Для публичного репо минуты бесплатны — можно "*/5 * * * *".
+# GitHub запускает cron с задержкой в несколько минут под нагрузкой — это нормально.
+name: notify
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: # кнопка «Run workflow» — проверить вручную
+
+concurrency:
+  group: notify # два запуска одновременно прислали бы одно и то же дважды
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go run ./cmd/gw notify
+        env:
+          GITHUB_TOKEN: ${{ secrets.GW_GITHUB_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NOTIFY_KINDS: ${{ vars.NOTIFY_KINDS }}
+          NOTIFY_REPOS: ${{ vars.NOTIFY_REPOS }}

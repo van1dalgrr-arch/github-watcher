@@ -6,11 +6,10 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github-watcher/internal/ui"
+	"github.com/van1dalgrr-arch/github-watcher/internal/ui"
 )
 
 var (
-	sBrand   = lipgloss.NewStyle().Bold(true).Foreground(ui.White).Background(ui.Accent).Padding(0, 1)
 	sTabOn   = lipgloss.NewStyle().Bold(true).Foreground(ui.Accent).Underline(true)
 	sTabOff  = lipgloss.NewStyle().Foreground(ui.Gray)
 	sPanel   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(ui.Gray).Padding(0, 1)

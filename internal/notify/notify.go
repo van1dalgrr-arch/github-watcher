@@ -5,7 +5,7 @@ import (
 	"context"
 	"strings"
 
-	"github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
 )
 
 type Notifier interface {

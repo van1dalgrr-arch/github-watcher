@@ -14,7 +14,7 @@ import (
 
 	gh "github.com/google/go-github/v92/github"
 
-	"github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
 )
 
 // ErrNoToken — нет ни GITHUB_TOKEN, ни логина в gh.

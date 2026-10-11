@@ -10,8 +10,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github-watcher/internal/domain"
-	"github-watcher/internal/watcher"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/watcher"
 )
 
 // Ответы фоновых загрузок. В каждом — для чего грузили, чтобы отбросить устаревшее (репозиторий успели сменить).

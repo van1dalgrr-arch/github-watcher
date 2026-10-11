@@ -7,11 +7,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github-watcher/internal/config"
-	"github-watcher/internal/domain"
-	"github-watcher/internal/github"
-	"github-watcher/internal/notify"
-	"github-watcher/internal/ui"
+	"github.com/van1dalgrr-arch/github-watcher/internal/config"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/github"
+	"github.com/van1dalgrr-arch/github-watcher/internal/notify"
+	"github.com/van1dalgrr-arch/github-watcher/internal/ui"
 )
 
 // telegramCmd — мастер настройки: токен бота → ждём сообщение от тебя → сохраняем chat id → тестовое уведомление.

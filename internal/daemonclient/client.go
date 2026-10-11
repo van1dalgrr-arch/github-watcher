@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"time"
 
-	"github-watcher/internal/domain"
-	"github-watcher/internal/watcher"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/watcher"
 )
 
 // ErrOffline — демон не запущен (или недоступен по сети).

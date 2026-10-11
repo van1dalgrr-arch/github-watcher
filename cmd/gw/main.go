@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github-watcher/internal/cli"
+	"github.com/van1dalgrr-arch/github-watcher/internal/cli"
 )
 
 func main() {

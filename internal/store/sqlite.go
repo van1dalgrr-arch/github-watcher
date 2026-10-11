@@ -12,7 +12,7 @@ import (
 
 	_ "modernc.org/sqlite" // чистый Go, без cgo — бинарник собирается с CGO_ENABLED=0
 
-	"github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
 )
 
 //go:embed schema.sql

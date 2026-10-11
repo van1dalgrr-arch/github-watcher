@@ -8,11 +8,11 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 
-	"github-watcher/internal/config"
-	"github-watcher/internal/daemonclient"
-	"github-watcher/internal/domain"
-	"github-watcher/internal/github"
-	"github-watcher/internal/ui"
+	"github.com/van1dalgrr-arch/github-watcher/internal/config"
+	"github.com/van1dalgrr-arch/github-watcher/internal/daemonclient"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/github"
+	"github.com/van1dalgrr-arch/github-watcher/internal/ui"
 )
 
 type needRepo func() (github.Client, string, error)

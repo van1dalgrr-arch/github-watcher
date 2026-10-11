@@ -11,10 +11,10 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 
-	"github-watcher/internal/config"
-	"github-watcher/internal/github"
-	"github-watcher/internal/tui"
-	"github-watcher/internal/ui"
+	"github.com/van1dalgrr-arch/github-watcher/internal/config"
+	"github.com/van1dalgrr-arch/github-watcher/internal/github"
+	"github.com/van1dalgrr-arch/github-watcher/internal/tui"
+	"github.com/van1dalgrr-arch/github-watcher/internal/ui"
 )
 
 func New() *cobra.Command {

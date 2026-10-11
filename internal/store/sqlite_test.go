@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
 )
 
 func TestSQLite(t *testing.T) {

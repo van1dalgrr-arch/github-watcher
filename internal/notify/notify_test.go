@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
 )
 
 func TestRules(t *testing.T) {

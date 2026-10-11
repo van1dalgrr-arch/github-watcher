@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github-watcher/internal/github"
-	"github-watcher/internal/notify"
-	"github-watcher/internal/store"
+	"github.com/van1dalgrr-arch/github-watcher/internal/github"
+	"github.com/van1dalgrr-arch/github-watcher/internal/notify"
+	"github.com/van1dalgrr-arch/github-watcher/internal/store"
 )
 
 type Watcher struct {

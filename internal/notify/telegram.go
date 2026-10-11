@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
 )
 
 // Telegram шлёт события через Bot API. Бот создаётся у @BotFather, chat id — `gw telegram`.

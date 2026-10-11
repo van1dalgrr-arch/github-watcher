@@ -4,6 +4,8 @@
 > ИИ-ассистент Claude (Anthropic) в Claude Code. Автор репозитория ставил задачи и принимал решения
 > (что должен уметь сервис, где его запускать), но код сам не писал.
 > Коммиты с кодом помечены строкой `Co-Authored-By: Claude`.
+>
+> **Исключение — Telegram-бот с командами** (см. [«Дальше»](#дальше)): его код автор пишет сам.
 
 Дашборд, репозитории, pull requests, issues, GitHub Actions с логами и живая лента событий — в одном TUI.
 Фоновый демон следит за GitHub и шлёт важное на телефон через Telegram.
@@ -21,13 +23,17 @@
 ## Установка
 
 ```sh
-make install        # gw появится в ~/go/bin
+go install github.com/van1dalgrr-arch/github-watcher/cmd/gw@latest
 gh auth login       # если ещё не залогинен — gw возьмёт токен оттуда
 ```
+
+Или через [dotfiles](https://github.com/van1dalgrr-arch/dotfiles): `install.sh` ставит gw и делает
+команду `github` его псевдонимом — так же, как `orbstack` → berth. Из исходников: `make install`.
 
 ## Использование
 
 ```sh
+github              # то же, что gw (псевдоним из dotfiles)
 gw                  # TUI; репозиторий — из git remote текущей папки
 gw -R owner/repo    # TUI сразу на нужном репозитории
 
@@ -60,7 +66,7 @@ gw events -n 50
 ## Уведомления без своего сервера
 
 Держать `gw daemon` включённым не обязательно: workflow [notify.yml](.github/workflows/notify.yml)
-раз в 30 минут запускает `gw notify` на серверах GitHub. Он проверяет новое, шлёт важное в Telegram
+раз в 5 минут запускает `gw notify` на серверах GitHub. Он проверяет новое, шлёт важное в Telegram
 и выходит. Состояние между запусками хранится в переменной репозитория `GW_STATE`.
 
 Нужны секреты репозитория: `GW_GITHUB_TOKEN` (`gh auth token | gh secret set GW_GITHUB_TOKEN`),
@@ -75,6 +81,13 @@ gw events -n 50
   упоминания; `all` — всё; или список `ci_failed,mention`.
 - `NOTIFY_REPOS` — только эти репозитории.
 - `POLL_INTERVAL` — как часто демон ходит в GitHub (по умолчанию `1m`).
+
+## Дальше
+
+**Telegram-бот с командами** — `/prs`, `/merge 42`, `/rerun`, `/status`, кнопки под уведомлениями.
+Этот код автор репозитория будет писать сам, без нейросети: подключить библиотеку для ботов
+(например, [go-telegram/bot](https://github.com/go-telegram/bot)) и написать обработчики команд
+поверх готового `internal/github.Client`. Сейчас бот только присылает уведомления.
 
 ## Разработка
 

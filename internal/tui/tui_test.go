@@ -12,11 +12,11 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github-watcher/internal/config"
-	"github-watcher/internal/daemonclient"
-	"github-watcher/internal/domain"
-	"github-watcher/internal/github"
-	"github-watcher/internal/watcher"
+	"github.com/van1dalgrr-arch/github-watcher/internal/config"
+	"github.com/van1dalgrr-arch/github-watcher/internal/daemonclient"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/github"
+	"github.com/van1dalgrr-arch/github-watcher/internal/watcher"
 )
 
 // fakeGH — GitHub-заглушка: отдаёт фиксированные данные и запоминает действия.
@@ -139,7 +139,7 @@ func screen(t *testing.T, m *Model, name string) string {
 }
 
 func TestScreens(t *testing.T) {
-	for _, size := range [][2]int{{140, 36}, {90, 30}} {
+	for _, size := range [][2]int{{140, 48}, {140, 36}, {90, 30}} {
 		m, _ := newTestModel(t, size[0], size[1])
 		name := func(s string) string { return fmt.Sprintf("%s %dx%d", s, size[0], size[1]) }
 

@@ -12,14 +12,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 
-	"github-watcher/internal/config"
-	"github-watcher/internal/domain"
-	"github-watcher/internal/github"
-	"github-watcher/internal/logbuf"
-	"github-watcher/internal/notify"
-	"github-watcher/internal/server"
-	"github-watcher/internal/store"
-	"github-watcher/internal/watcher"
+	"github.com/van1dalgrr-arch/github-watcher/internal/config"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/github"
+	"github.com/van1dalgrr-arch/github-watcher/internal/logbuf"
+	"github.com/van1dalgrr-arch/github-watcher/internal/notify"
+	"github.com/van1dalgrr-arch/github-watcher/internal/server"
+	"github.com/van1dalgrr-arch/github-watcher/internal/store"
+	"github.com/van1dalgrr-arch/github-watcher/internal/watcher"
 )
 
 // daemonCmd — `gw daemon`: фоновый сервис, следит за GitHub и шлёт уведомления на телефон.

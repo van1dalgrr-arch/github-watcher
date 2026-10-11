@@ -1,5 +1,5 @@
 // Package ui — общий вид CLI и TUI: палитра, значки статусов, относительное время.
-// Цвета из палитры GitHub — читаются и на тёмном, и на светлом фоне; основной текст — цвет терминала.
+// Основной текст — цвет терминала, акценты — палитра berth.
 package ui
 
 import (
@@ -9,18 +9,19 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
 )
 
+// Палитра — та же, что у berth (команда orbstack в dotfiles): фиолетовый → синий акцент.
 var (
-	Accent = lipgloss.Color("#8957E5")
-	Blue   = lipgloss.Color("#4493F8")
-	Green  = lipgloss.Color("#3FB950")
-	Red    = lipgloss.Color("#F85149")
-	Yellow = lipgloss.Color("#D29922")
-	Purple = lipgloss.Color("#AB7DF8")
-	Gray   = lipgloss.Color("#8B949E")
-	White  = lipgloss.Color("#FFFFFF")
+	Accent = lipgloss.Color("#a855f7")
+	Blue   = lipgloss.Color("#3b82f6")
+	Green  = lipgloss.Color("#22c55e")
+	Red    = lipgloss.Color("#ef4444")
+	Yellow = lipgloss.Color("#eab308")
+	Purple = lipgloss.Color("#a855f7")
+	Gray   = lipgloss.Color("#8a8a8a")
+	White  = lipgloss.Color("#f0f0f0")
 )
 
 var (

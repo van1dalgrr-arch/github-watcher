@@ -9,9 +9,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github-watcher/internal/domain"
-	"github-watcher/internal/store"
-	"github-watcher/internal/watcher"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/store"
+	"github.com/van1dalgrr-arch/github-watcher/internal/watcher"
 )
 
 // Pinger — всё, что нужно handler-у от базы. *store.SQLite подходит, а в тестах — заглушка.

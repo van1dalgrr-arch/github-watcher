@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
 )
 
 // Memory — EventStore без базы для разового запуска по расписанию (`gw notify` в GitHub Actions).

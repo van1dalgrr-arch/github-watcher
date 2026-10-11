@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
 )
 
 func TestMemoryAcrossRuns(t *testing.T) {

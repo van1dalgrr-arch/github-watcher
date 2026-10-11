@@ -15,12 +15,12 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
-	"github-watcher/internal/config"
-	"github-watcher/internal/daemonclient"
-	"github-watcher/internal/domain"
-	"github-watcher/internal/github"
-	"github-watcher/internal/ui"
-	"github-watcher/internal/watcher"
+	"github.com/van1dalgrr-arch/github-watcher/internal/config"
+	"github.com/van1dalgrr-arch/github-watcher/internal/daemonclient"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/github"
+	"github.com/van1dalgrr-arch/github-watcher/internal/ui"
+	"github.com/van1dalgrr-arch/github-watcher/internal/watcher"
 )
 
 type tab int

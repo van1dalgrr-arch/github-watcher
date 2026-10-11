@@ -1,4 +1,4 @@
-module github-watcher
+module github.com/van1dalgrr-arch/github-watcher
 
 go 1.27.2
 

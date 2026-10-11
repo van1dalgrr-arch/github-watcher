@@ -9,11 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github-watcher/internal/config"
-	"github-watcher/internal/github"
-	"github-watcher/internal/notify"
-	"github-watcher/internal/store"
-	"github-watcher/internal/watcher"
+	"github.com/van1dalgrr-arch/github-watcher/internal/config"
+	"github.com/van1dalgrr-arch/github-watcher/internal/github"
+	"github.com/van1dalgrr-arch/github-watcher/internal/notify"
+	"github.com/van1dalgrr-arch/github-watcher/internal/store"
+	"github.com/van1dalgrr-arch/github-watcher/internal/watcher"
 )
 
 // stateVar — переменная Actions, в которой `gw notify` хранит состояние между запусками.

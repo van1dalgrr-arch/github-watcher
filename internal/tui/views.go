@@ -10,8 +10,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github-watcher/internal/domain"
-	"github-watcher/internal/ui"
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
+	"github.com/van1dalgrr-arch/github-watcher/internal/ui"
 )
 
 func (m *Model) View() tea.View {
@@ -45,7 +45,7 @@ func (m *Model) render() string {
 }
 
 func (m *Model) headerView() string {
-	left := sBrand.Render("◆ gw") + " "
+	left := " " + wordmark() + ui.Faint.Render("  ·  ")
 	if m.repo != "" {
 		left += ui.Bold.Render(m.repo)
 	} else {
@@ -375,6 +375,14 @@ func (m *Model) daemonHint() string {
 
 func (m *Model) dashView() string {
 	h := m.bodyHeight()
+	// большой логотип, как у berth, — когда терминал позволяет и панелям остаётся место
+	if m.w >= bannerWidth+2 && h-bannerHeight-1 >= 24 {
+		return banner() + "\n\n" + m.dashPanels(h-bannerHeight-1)
+	}
+	return m.dashPanels(h)
+}
+
+func (m *Model) dashPanels(h int) string {
 	if m.w >= 100 {
 		leftW := m.w * 2 / 5
 		rightW := m.w - leftW

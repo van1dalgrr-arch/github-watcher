@@ -18,6 +18,8 @@ type Client interface {
 	WorkflowRuns(ctx context.Context, repo string) ([]domain.WorkflowRun, error)
 	RunLogs(ctx context.Context, repo string, runID int64) (string, error)
 	RunReport(ctx context.Context, repo string, runID int64) (string, error) // сжатый отчёт для уведомления
+	Tree(ctx context.Context, repo string) ([]string, error)                 // пути всех файлов ветки по умолчанию
+	File(ctx context.Context, repo, path string) (string, error)
 
 	// действия
 	MergePR(ctx context.Context, repo string, number int, method string) error

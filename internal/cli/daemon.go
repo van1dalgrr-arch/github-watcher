@@ -9,7 +9,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 
 	"github.com/van1dalgrr-arch/github-watcher/internal/config"
@@ -69,10 +68,7 @@ func runDaemon(ctx context.Context, cfg config.Config) error {
 		Log:      log,
 	}
 
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	r.Use(gin.Recovery()) // без логов запросов: TUI опрашивает API каждые несколько секунд
-	server.Register(r, server.Deps{DB: db, Events: db, Status: w.Status, LogTail: ring.Lines})
+	r := server.New(server.Deps{DB: db, Events: db, Status: w.Status, LogTail: ring.Lines})
 
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: r, ReadHeaderTimeout: 5 * time.Second}
 	errc := make(chan error, 1)

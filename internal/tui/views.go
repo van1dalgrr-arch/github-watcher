@@ -167,6 +167,8 @@ func (m *Model) hints() []string {
 		h = []string{keyHint("enter", "логи"), keyHint("R", "перезапуск"), keyHint("f", "упавшие")}
 	case tabEvents:
 		h = []string{keyHint("enter", "подробности"), keyHint("o", "браузер"), keyHint("f", "к репо")}
+	case tabCode:
+		h = []string{keyHint("enter", "открыть"), keyHint("/", "найти файл"), keyHint("o", "браузер")}
 	}
 	return append(h, keyHint(":", "терминал"), keyHint("?", "помощь"), keyHint("q", "выход"))
 }
@@ -192,7 +194,7 @@ func (m *Model) helpView() string {
 	}
 	cols := []string{
 		sec("Везде",
-			[2]string{"1…7", "вкладки"}, [2]string{"tab / h l", "соседняя вкладка"},
+			[2]string{"1…8", "вкладки"}, [2]string{"tab / h l", "соседняя вкладка"},
 			[2]string{"↑↓ / j k", "по списку"}, [2]string{"g / G", "в начало / конец"},
 			[2]string{"/", "фильтр"}, [2]string{"r", "обновить"}, [2]string{"o", "открыть в браузере"},
 			[2]string{":", "терминал"},
@@ -203,7 +205,8 @@ func (m *Model) helpView() string {
 		sec("Actions и лента",
 			[2]string{"enter", "логи запуска"}, [2]string{"e / E", "к след./пред. ошибке"},
 			[2]string{"R", "перезапустить"}, [2]string{"f", "только упавшие"},
-			[2]string{"f (Events)", "репо события"}),
+			[2]string{"f (Events)", "репо события"},
+			[2]string{"8 → /", "найти файл в коде"}),
 	}
 	for i := range cols {
 		cols[i] = lipgloss.NewStyle().Width(34).Render(cols[i])
@@ -229,6 +232,9 @@ func (m *Model) tabView() string {
 	}
 	if m.repo == "" && m.tab != tabRepos && m.tab != tabEvents {
 		return ui.Faint.Render("  выбери репозиторий на вкладке 2")
+	}
+	if m.tab == tabCode {
+		return m.codeView()
 	}
 
 	vis := m.visible(m.tab)
@@ -294,6 +300,8 @@ func (m *Model) visible(t tab) []int {
 		for _, e := range m.events {
 			texts = append(texts, e.Repo+" "+e.Title+" "+e.Actor+" "+string(e.Kind))
 		}
+	case tabCode:
+		texts = m.code.files
 	}
 	f := strings.ToLower(m.filters[t])
 	out := make([]int, 0, len(texts))

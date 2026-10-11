@@ -7,6 +7,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -35,10 +36,11 @@ const (
 	tabActions
 	tabEvents
 	tabLogs
+	tabCode
 	tabCount
 )
 
-var tabNames = [tabCount]string{"Dashboard", "Repos", "Pull requests", "Issues", "Actions", "Events", "Logs"}
+var tabNames = [tabCount]string{"Dashboard", "Repos", "Pull requests", "Issues", "Actions", "Events", "Logs", "Code"}
 
 type Model struct {
 	parent context.Context
@@ -86,6 +88,7 @@ type Model struct {
 	viewer    *viewer
 	help      bool
 	term      term // панель-терминал внизу (`:`)
+	code      code // вкладка Code
 }
 
 type prompt struct {
@@ -107,6 +110,8 @@ type viewer struct {
 }
 
 func Run(ctx context.Context, gh github.Client, cfg config.Config, repo string) error {
+	// TUI живёт часами: чаще собираем мусор — меньше памяти держим про запас (данных тут немного)
+	debug.SetGCPercent(50)
 	m := newModel(ctx, gh, daemonclient.New(cfg.DaemonURL), cfg, repo)
 	_, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()
 	if err != nil && ctx.Err() != nil {
@@ -169,6 +174,10 @@ func (m *Model) ensure() tea.Cmd {
 		if m.runsKey != m.repo {
 			return m.loadRuns()
 		}
+	case tabCode:
+		if m.code.repo != m.repo {
+			return m.loadTree()
+		}
 	}
 	return nil
 }
@@ -186,6 +195,8 @@ func (m *Model) reload(t tab) tea.Cmd {
 		return m.loadIssues()
 	case tabActions:
 		return m.loadRuns()
+	case tabCode:
+		return m.loadTree()
 	default:
 		return m.loadDaemon()
 	}
@@ -234,6 +245,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case termDoneMsg:
 		m.term.done(msg)
+		return m, nil
+
+	case previewMsg:
+		if msg.token == m.code.token && m.tab == tabCode {
+			if p := m.selectedFile(); p != "" && p != m.code.path {
+				return m, m.loadFile(p)
+			}
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -306,6 +325,19 @@ func (m *Model) handleLoaded(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case feedMsg:
 		if !m.daemonUp {
 			m.events = msg.events
+		}
+	case treeMsg:
+		if msg.repo == m.code.repo {
+			m.code.files, m.code.local = msg.files, msg.local
+			m.lists[tabCode] = list{}
+			return m, m.schedulePreview()
+		}
+	case fileMsg:
+		if msg.repo == m.code.repo {
+			m.code.remember(msg.path, msg.lines)
+			if msg.path == m.selectedFile() {
+				m.code.path, m.code.lines, m.code.err = msg.path, msg.lines, ""
+			}
 		}
 	case dashRunsMsg:
 		m.dashRuns = msg.runs
@@ -382,6 +414,9 @@ func (m *Model) wheel(msg tea.MouseWheelMsg) tea.Cmd {
 		}
 	case m.tab != tabDash:
 		m.lists[m.tab].scroll(d, len(m.visible(m.tab)), m.listHeight())
+		if m.tab == tabCode {
+			return m.schedulePreview()
+		}
 	}
 	return nil
 }
@@ -432,6 +467,9 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 			m.lists[m.tab].cursor = 0
 			return cmd
 		}
+		if m.tab == tabCode {
+			return m.schedulePreview()
+		}
 		return nil
 	case m.viewer != nil:
 		return m.viewerKey(msg)
@@ -452,7 +490,7 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.switchTab((m.tab + 1) % tabCount)
 	case "shift+tab", "h", "left":
 		return m.switchTab((m.tab + tabCount - 1) % tabCount)
-	case "1", "2", "3", "4", "5", "6", "7":
+	case "1", "2", "3", "4", "5", "6", "7", "8":
 		n, _ := strconv.Atoi(k)
 		return m.switchTab(tab(n - 1))
 	case "r":
@@ -480,6 +518,9 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return cmd
 	}
 	if m.tab != tabDash && m.lists[m.tab].key(k, len(m.visible(m.tab)), m.listHeight()) {
+		if m.tab == tabCode {
+			return m.schedulePreview()
+		}
 		return nil
 	}
 	return m.tabKey(k)
@@ -683,6 +724,21 @@ func (m *Model) tabKey(k string) tea.Cmd {
 			}
 		}
 
+	case tabCode:
+		if !has {
+			return nil
+		}
+		p := m.code.files[vis[cur]]
+		switch k {
+		case "enter", "space":
+			if p != m.code.path {
+				return m.loadFile(p) // ещё не загружен — откроем после загрузки по второму enter
+			}
+			m.viewer = m.newViewer(p, codeURL(m.repo, p), numbered(m.code.lines, 0))
+		case "o":
+			return openURL(codeURL(m.repo, p))
+		}
+
 	case tabEvents:
 		if !has {
 			return nil
@@ -823,3 +879,5 @@ func (m *Model) viewerKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	return nil
 }
+
+func codeURL(repo, path string) string { return "https://github.com/" + repo + "/blob/HEAD/" + path }

@@ -113,13 +113,13 @@ func readFile(path string) map[string]string {
 
 func defaultDBPath() string {
 	if dir := os.Getenv("XDG_DATA_HOME"); dir != "" {
-		return filepath.Join(dir, "gw", "gw.db")
+		return filepath.Join(dir, "gw", "events.json")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "gw.db"
+		return "events.json"
 	}
-	return filepath.Join(home, ".local", "share", "gw", "gw.db")
+	return filepath.Join(home, ".local", "share", "gw", "events.json")
 }
 
 // ghToken — токен из `gh auth login`, чтобы не логиниться дважды.

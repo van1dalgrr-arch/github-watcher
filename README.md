@@ -12,7 +12,7 @@
 
 ```
  ◆ gw  me/api                                                            @me  ● daemon
- 1 Dashboard   2 Repos   3 Pull requests 2   4 Issues 1   5 Actions 1   6 Events   7 Logs
+ 1 Dashboard   2 Repos   3 Pull requests 2   4 Issues 1   5 Actions 1   6 Events   7 Logs   8 Code
 
  Pull requests · open · 2
 ▌ ◆ #7    ✓ Добавить кэш                          feat/cache → main     @alice    1ч
@@ -52,7 +52,8 @@ gw events -n 50
 
 | | |
 |---|---|
-| `1`…`7`, `tab` | вкладки |
+| `1`…`8`, `tab` | вкладки (8 — Code: файлы и код с подсветкой) |
+| `:` | терминал внизу: команды с родными цветами, `cd`, история ↑↓, `ctrl+c` — стоп, `esc` — скрыть |
 | `j k` / `↑ ↓`, `g G` | по списку |
 | `/` | фильтр, `esc` — сбросить |
 | `enter` | выбрать репозиторий / подробности PR и issue / логи запуска |

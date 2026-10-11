@@ -95,7 +95,7 @@ func run(m *Model, cmds ...tea.Cmd) {
 		case nil:
 		default:
 			switch msg.(type) {
-			case loaded, termOutMsg, termDoneMsg:
+			case loaded, termOutMsg, termDoneMsg, previewMsg:
 			default:
 				continue // тики, спиннер и т.п. в тесте не нужны
 			}
@@ -303,5 +303,47 @@ func TestClean(t *testing.T) {
 		if got := clean(in); got != want {
 			t.Errorf("clean(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func (f *fakeGH) Tree(context.Context, string) ([]string, error) {
+	return []string{"main.go", "internal/store/store.go", "README.md"}, nil
+}
+
+func (f *fakeGH) File(_ context.Context, _, path string) (string, error) {
+	if path == "main.go" {
+		return "package main\n\n/* многострочный\n   комментарий */\nfunc main() {\n\tprintln(\"hi\")\n}\n", nil
+	}
+	return "# readme\n", nil
+}
+
+func TestCodeTab(t *testing.T) {
+	m, _ := newTestModel(t, 140, 40)
+	press(m, "8")
+	if len(m.code.files) != 3 || m.code.local != "" {
+		t.Fatalf("список файлов (с GitHub): %+v", m.code)
+	}
+	if m.code.path != "main.go" {
+		t.Fatalf("предпросмотр первого файла не загрузился: %q", m.code.path)
+	}
+	out := screen(t, m, "code")
+	if !strings.Contains(out, "package main") || !strings.Contains(out, "1 │") {
+		t.Fatalf("предпросмотр:\n%s", out)
+	}
+	if !strings.Contains(m.render(), "\x1b[38;2;") {
+		t.Fatal("нет подсветки синтаксиса (truecolor)")
+	}
+	// многострочный комментарий раскрашен и на второй строке
+	if l := m.code.lines[3]; !strings.Contains(l, "\x1b[") {
+		t.Fatalf("вторая строка комментария без цвета: %q", l)
+	}
+
+	press(m, "/", "r", "e", "a", "enter")
+	if m.selectedFile() != "README.md" || m.code.path != "README.md" {
+		t.Fatalf("фильтр файлов: выбран %q, показан %q", m.selectedFile(), m.code.path)
+	}
+	press(m, "enter")
+	if m.viewer == nil || !strings.Contains(screen(t, m, "файл"), "# readme") {
+		t.Fatal("enter должен открыть файл целиком")
 	}
 }

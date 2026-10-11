@@ -852,3 +852,38 @@ func errorContext(log string) []string {
 	to := min(errAt+3, len(lines))
 	return lines[from:to]
 }
+
+// Tree — все файлы ветки по умолчанию одним запросом (рекурсивное дерево git).
+func (c *client) Tree(ctx context.Context, repo string) ([]string, error) {
+	owner, name, err := split(repo)
+	if err != nil {
+		return nil, err
+	}
+	tree, _, err := c.gh.Git.GetTree(ctx, owner, name, "HEAD", true)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range tree.Entries {
+		if e.GetType() == "blob" {
+			out = append(out, e.GetPath())
+		}
+	}
+	return out, nil
+}
+
+// File — содержимое файла с ветки по умолчанию. Contents API отдаёт файлы до 1 МБ.
+func (c *client) File(ctx context.Context, repo, path string) (string, error) {
+	owner, name, err := split(repo)
+	if err != nil {
+		return "", err
+	}
+	f, _, _, err := c.gh.Repositories.GetContents(ctx, owner, name, path, nil)
+	if err != nil {
+		return "", err
+	}
+	if f == nil {
+		return "", fmt.Errorf("%s — это папка", path)
+	}
+	return f.GetContent()
+}

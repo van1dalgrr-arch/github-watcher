@@ -1,4 +1,4 @@
-// Package store — история событий в SQLite. Её читает TUI (лента/логи) и watcher (что уже видели).
+// Package store — история событий (JSON-файл у демона, память у `gw notify`). Её читает TUI (лента/логи) и watcher (что уже видели).
 package store
 
 import (

@@ -20,10 +20,10 @@ GitHub Actions раз в 5 минут запускает `gw notify` (тот ж�
 
 ```
                 ┌──────────────── gw daemon ─────────────────┐
-GitHub API ──▶  │ watcher ──▶ store (SQLite) ──▶ notify ──────┼──▶ Telegram ──▶ телефон
+GitHub API ──▶  │ watcher ──▶ store (JSON) ──▶ notify ────────┼──▶ Telegram ──▶ телефон
  (опрос)        │                │                            │
                 │                ▼                            │
-                │   server (Gin): /api/events /status /logs   │
+                │ server (net/http): /api/events /status /logs│
                 └────────────────┬─────────────────────────────┘
                                  │ HTTP, раз в 5 с
                                  ▼
@@ -43,10 +43,10 @@ internal/
   domain/            типы: Repo, PullRequest, Issue, WorkflowRun, Event. Ни от чего не зависит
   config/            ~/.config/gw/config + окружение; токен из `gh auth token`
   github/            interface Client + реализация на go-github                 (адаптер)
-  store/             interface EventStore + SQLite (чистый Go, без cgo)          (адаптер)
+  store/             interface EventStore: JSON-файл (демон) и память (notify)   (адаптер)
   notify/            interface Notifier + правила + Telegram                     (адаптер)
   watcher/           цикл: GitHub → store → notify, статус для TUI
-  server/            Gin: /health, /api/events, /api/status, /api/logs
+  server/            net/http: /health, /api/events, /api/status, /api/logs
   daemonclient/      HTTP-клиент TUI/CLI → демон
   logbuf/            последние 500 строк лога демона в памяти (вкладка Logs)
   ui/                общая палитра, значки статусов, «5м», подсветка логов Actions
@@ -58,12 +58,15 @@ bot/                 Telegram-бот с командами на telebot v4 — �
 Правило зависимостей: `domain` ← всё остальное; `watcher`, `server`, `tui` зависят от **интерфейсов**
 (`github.Client`, `store.EventStore`, `notify.Notifier`), а не от реализаций. Сборка реализаций — в `cli`.
 Поэтому всё тестируется на заглушках: TUI прогоняется целиком на фейковом GitHub (`tui_test.go`),
-watcher — на настоящей SQLite во временной папке и фейковом Telegram.
+watcher — на настоящем файловом хранилище во временной папке и фейковом Telegram.
 
 ## Ключевые решения
 
-- **SQLite, а не Postgres.** Один пользователь, одна таблица — отдельный сервер БД был бы лишней настройкой.
-  `modernc.org/sqlite` — чистый Go, бинарник собирается с `CGO_ENABLED=0`.
+- **Без базы данных и без веб-фреймворка — ради памяти.** Демону хватает последних 2000 событий в JSON-файле,
+  API — четыре адреса на стандартном `net/http`. SQLite (modernc) и Gin тянули за собой мегабайты кода
+  и памяти при каждом запуске gw: после их удаления TUI занимает ~31 МБ вместо ~45, бинарник — 13,6 МБ вместо 24.
+- **TUI:** терминал внизу по `:` (команды через PTY, родные цвета), вкладка Code — файлы с диска, если gw
+  запущен в клоне, иначе с GitHub; подсветка chroma со своей темой (пакет готовых тем не подключён — экономия памяти).
 - **Опрос, а не вебхуки.** Вебхукам нужен публичный URL; опрос работает с ноутбука. Источники:
   received events (только *мои* репозитории — иначе в ленту льётся активность всех, на кого подписан),
   notifications (упоминания, запросы ревью), запуски Actions в репозиториях, куда пушили за сутки.

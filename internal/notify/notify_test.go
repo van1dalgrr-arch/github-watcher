@@ -16,8 +16,8 @@ func TestRules(t *testing.T) {
 	star := domain.Event{Kind: domain.EventStar, Repo: "me/app"}
 
 	def := ParseRules("", "")
-	if !def.Match(ci) || !def.Match(domain.Event{Kind: domain.EventPush}) || def.Match(star) {
-		t.Fatal("по умолчанию: CI и пуши — да, звёзды — нет")
+	if !def.Match(ci) || !def.Match(domain.Event{Kind: domain.EventPush}) || !def.Match(domain.Event{Kind: domain.EventCIPassed}) || def.Match(star) {
+		t.Fatal("по умолчанию: CI (любой) и пуши — да, звёзды — нет")
 	}
 	if !ParseRules("all", "").Match(star) {
 		t.Fatal("all должен пропускать всё")

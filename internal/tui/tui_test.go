@@ -47,6 +47,7 @@ func (f *fakeGH) Issues(_ context.Context, repo, _ string) ([]domain.Issue, erro
 }
 func (f *fakeGH) WorkflowRuns(_ context.Context, repo string) ([]domain.WorkflowRun, error) {
 	return []domain.WorkflowRun{
+		{Repo: repo, ID: 3, Name: "notify", Branch: "main", Event: "schedule", Title: "notify", Status: "completed", Conclusion: "success", UpdatedAt: now},
 		{Repo: repo, ID: 1, Name: "ci", Branch: "main", Event: "push", Title: "Добавить кэш", Status: "completed", Conclusion: "failure", UpdatedAt: now},
 		{Repo: repo, ID: 2, Name: "deploy", Branch: "main", Event: "push", Title: "Релиз", Status: "in_progress", UpdatedAt: now},
 	}, nil
@@ -93,7 +94,9 @@ func run(m *Model, cmds ...tea.Cmd) {
 			run(m, msg...)
 		case nil:
 		default:
-			if _, ok := msg.(loaded); !ok {
+			switch msg.(type) {
+			case loaded, termOutMsg, termDoneMsg:
+			default:
 				continue // тики, спиннер и т.п. в тесте не нужны
 			}
 			_, next := m.Update(msg)
@@ -236,5 +239,69 @@ func TestPushWithoutDaemon(t *testing.T) {
 	press(m, "6", "enter")
 	if s := screen(t, m, "пуш"); m.viewer == nil || !strings.Contains(s, "a1b2c3d") || !strings.Contains(s, "+30") {
 		t.Errorf("подробности пуша:\n%s", s)
+	}
+}
+
+func TestTerminal(t *testing.T) {
+	m, _ := newTestModel(t, 120, 40)
+	m.term.dir = t.TempDir()
+	m.term.lines = nil
+
+	typeLine := func(s string) {
+		for _, r := range s {
+			press(m, string(r))
+		}
+	}
+	press(m, ":")
+	if !m.term.open || !m.term.focused {
+		t.Fatal("`:` должен открыть терминал")
+	}
+	typeLine(`printf 'a\033[31mb\033[0m\n'; echo $((40+2))`)
+	press(m, "enter")
+	out := strings.Join(m.term.lines, "\n")
+	if !strings.Contains(out, "a\x1b[31mb\x1b[0m") || !strings.Contains(out, "42") || !strings.Contains(out, "✓") {
+		t.Fatalf("вывод (цвета должны сохраниться):\n%q", out)
+	}
+	screen(t, m, "терминал")
+
+	typeLine("mkdir sub && cd sub")
+	press(m, "enter") // mkdir выполнится, а cd в шелле не меняет папку панели — проверим встроенный cd
+	typeLine("cd sub")
+	press(m, "enter")
+	if !strings.HasSuffix(m.term.dir, "sub") {
+		t.Fatalf("cd: папка %q", m.term.dir)
+	}
+
+	typeLine("false")
+	press(m, "enter")
+	if last := ansi.Strip(m.term.lines[len(m.term.lines)-1]); !strings.Contains(last, "код 1") {
+		t.Fatalf("код возврата: %q", last)
+	}
+
+	// ctrl+c в терминале не закрывает gw
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd != nil {
+		if _, quit := cmd().(tea.QuitMsg); quit {
+			t.Fatal("ctrl+c в терминале закрыл gw")
+		}
+	}
+	press(m, "esc")
+	if m.term.open {
+		t.Fatal("esc должен скрыть терминал")
+	}
+}
+
+func TestClean(t *testing.T) {
+	cases := map[string]string{
+		"progress 10%\rprogress 100%\r": "progress 100%",
+		"\x1b[32mok\x1b[0m\x1b[K":       "\x1b[32mok\x1b[0m",
+		"\x1b]0;title\x07text":          "text",
+		"abc\bd":                        "abd",
+		"tab\there":                     "tab    here",
+	}
+	for in, want := range cases {
+		if got := clean(in); got != want {
+			t.Errorf("clean(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

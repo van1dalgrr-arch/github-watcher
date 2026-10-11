@@ -15,6 +15,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/van1dalgrr-arch/github-watcher/internal/config"
 	"github.com/van1dalgrr-arch/github-watcher/internal/daemonclient"
@@ -84,6 +85,7 @@ type Model struct {
 	confirm   *confirm
 	viewer    *viewer
 	help      bool
+	term      term // панель-терминал внизу (`:`)
 }
 
 type prompt struct {
@@ -125,6 +127,7 @@ func newModel(ctx context.Context, gh github.Client, d *daemonclient.Client, cfg
 		spin:       spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(ui.Warn)),
 		logsVP:     viewport.New(),
 		filterIn:   newInput("фильтр…"),
+		term:       newTerm(),
 	}
 }
 
@@ -133,7 +136,15 @@ func newInput(placeholder string) textinput.Model {
 	in.Prompt = ""
 	in.Placeholder = placeholder
 	in.CharLimit = 2000
+	steadyCursor(&in)
 	return in
+}
+
+// steadyCursor — курсор без мигания: мигание будит TUI дважды в секунду ради перерисовки.
+func steadyCursor(in *textinput.Model) {
+	st := in.Styles()
+	st.Cursor.Blink = false
+	in.SetStyles(st)
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -186,16 +197,43 @@ func (m *Model) setFlash(text string, bad bool) {
 
 func (m *Model) bodyHeight() int { return max(m.h-4, 1) }
 
+// termHeight — высота панели-терминала с рамкой; 0, если она скрыта.
+func (m *Model) termHeight() int {
+	if !m.term.open {
+		return 0
+	}
+	return max(m.bodyHeight()*2/5, 8)
+}
+
+// mainHeight — сколько остаётся вкладке над терминалом.
+func (m *Model) mainHeight() int { return max(m.bodyHeight()-m.termHeight(), 3) }
+
+// layout раздаёт размеры прокручиваемым областям — после изменения окна или открытия терминала.
+func (m *Model) layout() {
+	m.logsVP.SetWidth(m.w)
+	m.logsVP.SetHeight(m.mainHeight())
+	if m.viewer != nil {
+		m.viewer.vp.SetWidth(m.w)
+		m.viewer.vp.SetHeight(m.mainHeight() - 1)
+	}
+	m.term.vp.SetWidth(m.w - 4)
+	m.term.vp.SetHeight(max(m.termHeight()-4, 1))
+	m.term.in.SetWidth(max(m.w-lipgloss.Width(m.term.prompt())-6, 10))
+}
+
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
-		m.logsVP.SetWidth(m.w)
-		m.logsVP.SetHeight(m.bodyHeight())
-		if m.viewer != nil {
-			m.viewer.vp.SetWidth(m.w)
-			m.viewer.vp.SetHeight(m.bodyHeight() - 1)
-		}
+		m.layout()
+		return m, nil
+
+	case termOutMsg:
+		m.term.feed(msg.data)
+		return m, m.term.wait()
+
+	case termDoneMsg:
+		m.term.done(msg)
 		return m, nil
 
 	case spinner.TickMsg:
@@ -324,6 +362,12 @@ func (m *Model) wheel(msg tea.MouseWheelMsg) tea.Cmd {
 		return nil
 	}
 	switch {
+	case m.term.focused:
+		if d < 0 {
+			m.term.vp.ScrollUp(-d)
+		} else {
+			m.term.vp.ScrollDown(d)
+		}
 	case m.viewer != nil:
 		if d < 0 {
 			m.viewer.vp.ScrollUp(-d)
@@ -344,6 +388,9 @@ func (m *Model) wheel(msg tea.MouseWheelMsg) tea.Cmd {
 
 func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	k := msg.String()
+	if m.term.focused && m.confirm == nil && m.prompt == nil {
+		return m.termKey(msg)
+	}
 	if k == "ctrl+c" {
 		return tea.Quit
 	}
@@ -394,6 +441,10 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	switch k {
 	case "q":
 		return tea.Quit
+	case ":":
+		m.term.open, m.term.focused = true, true
+		m.layout()
+		return m.term.in.Focus()
 	case "?":
 		m.help = true
 		return nil
@@ -440,7 +491,67 @@ func (m *Model) switchTab(t tab) tea.Cmd {
 	return m.ensure()
 }
 
-func (m *Model) listHeight() int { return m.bodyHeight() - 1 } // строка заголовка над списком
+func (m *Model) listHeight() int { return m.mainHeight() - 1 } // строка заголовка над списком
+
+// termKey — клавиши, когда в фокусе терминал. Ctrl+C здесь останавливает команду, а не gw.
+func (m *Model) termKey(msg tea.KeyPressMsg) tea.Cmd {
+	t := &m.term
+	switch msg.String() {
+	case "esc":
+		t.open, t.focused = false, false // команда, если идёт, продолжает работать
+		t.in.Blur()
+		m.layout()
+		return nil
+	case "ctrl+c":
+		if t.running() {
+			t.interrupt()
+		} else {
+			t.in.SetValue("")
+		}
+		return nil
+	case "ctrl+l":
+		t.lines = nil
+		t.refresh()
+		return nil
+	case "enter":
+		line := t.in.Value()
+		t.in.SetValue("")
+		if t.running() {
+			t.send(line)
+			return nil
+		}
+		cmd := t.run(line, m.w-4, max(m.termHeight()-4, 5))
+		if !t.open {
+			m.layout() // exit закрыл панель
+		}
+		return cmd
+	case "up", "down":
+		if t.running() || len(t.history) == 0 {
+			return nil
+		}
+		if msg.String() == "up" {
+			t.hpos = max(t.hpos-1, 0)
+		} else {
+			t.hpos = min(t.hpos+1, len(t.history))
+		}
+		if t.hpos < len(t.history) {
+			t.in.SetValue(t.history[t.hpos])
+		} else {
+			t.in.SetValue("")
+		}
+		t.in.CursorEnd()
+		return nil
+	case "pgup":
+		t.vp.PageUp()
+		return nil
+	case "pgdown":
+		t.vp.PageDown()
+		return nil
+	}
+	var cmd tea.Cmd
+	t.in, cmd = t.in.Update(msg)
+	return cmd
+}
 
 // selectRepo делает репозиторий текущим и переходит к его PR.
 func (m *Model) selectRepo(repo string) tea.Cmd {
@@ -651,7 +762,7 @@ func (m *Model) askNewIssue() tea.Cmd {
 }
 
 func (m *Model) newViewer(title, url string, lines []string) *viewer {
-	vp := viewport.New(viewport.WithWidth(m.w), viewport.WithHeight(m.bodyHeight()-1))
+	vp := viewport.New(viewport.WithWidth(m.w), viewport.WithHeight(m.mainHeight()-1))
 	vp.SetContentLines(lines)
 	return &viewer{title: title, vp: vp, url: url}
 }

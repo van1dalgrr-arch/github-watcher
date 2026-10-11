@@ -35,7 +35,10 @@ func (m *Model) render() string {
 	default:
 		body = m.tabView()
 	}
-	body = lipgloss.NewStyle().Height(m.bodyHeight()).MaxHeight(m.bodyHeight()).Render(body)
+	body = lipgloss.NewStyle().Height(m.mainHeight()).MaxHeight(m.mainHeight()).Render(body)
+	if m.term.open {
+		body += "\n" + m.termView()
+	}
 
 	// модальные окна рисуем поверх тела по центру
 	if m.confirm != nil || m.prompt != nil {
@@ -141,6 +144,10 @@ func (m *Model) footerView() string {
 }
 
 func (m *Model) hints() []string {
+	if m.term.focused {
+		return []string{keyHint("enter", "выполнить"), keyHint("↑↓", "история"), keyHint("ctrl+c", "стоп"),
+			keyHint("pgup/pgdn", "листать"), keyHint("esc", "скрыть")}
+	}
 	if m.viewer != nil {
 		h := []string{keyHint("↑↓", "листать"), keyHint("o", "браузер"), keyHint("esc", "назад")}
 		if len(m.viewer.errs) > 0 {
@@ -161,7 +168,7 @@ func (m *Model) hints() []string {
 	case tabEvents:
 		h = []string{keyHint("enter", "подробности"), keyHint("o", "браузер"), keyHint("f", "к репо")}
 	}
-	return append(h, keyHint("?", "помощь"), keyHint("q", "выход"))
+	return append(h, keyHint(":", "терминал"), keyHint("?", "помощь"), keyHint("q", "выход"))
 }
 
 func (m *Model) modalView() string {
@@ -188,6 +195,7 @@ func (m *Model) helpView() string {
 			[2]string{"1…7", "вкладки"}, [2]string{"tab / h l", "соседняя вкладка"},
 			[2]string{"↑↓ / j k", "по списку"}, [2]string{"g / G", "в начало / конец"},
 			[2]string{"/", "фильтр"}, [2]string{"r", "обновить"}, [2]string{"o", "открыть в браузере"},
+			[2]string{":", "терминал"},
 			[2]string{"q", "выход"}),
 		sec("PR и issues",
 			[2]string{"enter", "подробности"}, [2]string{"m", "смёржить PR"}, [2]string{"c", "комментарий"},
@@ -373,7 +381,7 @@ func (m *Model) daemonHint() string {
 // ── Dashboard ──────────────────────────────────────────────────────────────
 
 func (m *Model) dashView() string {
-	h := m.bodyHeight()
+	h := m.mainHeight()
 	// большой логотип, как у berth, — когда терминал позволяет и панелям остаётся место
 	if m.w >= bannerWidth+2 && h-bannerHeight-1 >= 24 {
 		return banner() + "\n\n" + m.dashPanels(h-bannerHeight-1)
@@ -588,4 +596,23 @@ func colorLog(lines []string) []string {
 		}
 	}
 	return out
+}
+
+// termView — панель-терминал: заголовок, вывод, строка ввода.
+func (m *Model) termView() string {
+	t := &m.term
+	title := ui.Title.Render("терминал")
+	if t.running() {
+		title += "  " + m.spin.View() + ui.Faint.Render(" "+t.history[len(t.history)-1])
+	}
+	input := t.prompt() + t.in.View()
+	if t.running() {
+		input = ui.Faint.Render("stdin › ") + t.in.View()
+	}
+	style := sPanel
+	if t.focused {
+		style = style.BorderForeground(ui.Accent)
+	}
+	return style.Width(m.w).Height(m.termHeight()).MaxHeight(m.termHeight()).
+		Render(title + "\n" + t.vp.View() + "\n" + input)
 }

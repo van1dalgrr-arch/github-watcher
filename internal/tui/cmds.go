@@ -131,12 +131,17 @@ func (m *Model) loadDashRuns() tea.Cmd {
 		for _, repo := range repos {
 			wg.Go(func() {
 				runs, err := m.gh.WorkflowRuns(ctx, repo)
-				if err != nil || len(runs) == 0 {
+				if err != nil {
 					return
 				}
-				mu.Lock()
-				out = append(out, runs[0])
-				mu.Unlock()
+				for _, r := range runs { // последний CI на код, а не запуск по расписанию или служебный notify
+					if r.Event == "push" || r.Event == "pull_request" {
+						mu.Lock()
+						out = append(out, r)
+						mu.Unlock()
+						return
+					}
+				}
 			})
 		}
 		wg.Wait()

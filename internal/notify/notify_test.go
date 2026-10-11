@@ -13,13 +13,13 @@ import (
 
 func TestRules(t *testing.T) {
 	ci := domain.Event{Kind: domain.EventCIFailed, Repo: "me/app"}
-	push := domain.Event{Kind: domain.EventPush, Repo: "me/app"}
+	star := domain.Event{Kind: domain.EventStar, Repo: "me/app"}
 
 	def := ParseRules("", "")
-	if !def.Match(ci) || def.Match(push) {
-		t.Fatal("по умолчанию: CI — да, push — нет")
+	if !def.Match(ci) || !def.Match(domain.Event{Kind: domain.EventPush}) || def.Match(star) {
+		t.Fatal("по умолчанию: CI и пуши — да, звёзды — нет")
 	}
-	if !ParseRules("all", "").Match(push) {
+	if !ParseRules("all", "").Match(star) {
 		t.Fatal("all должен пропускать всё")
 	}
 	only := ParseRules("ci_failed", "me/api")

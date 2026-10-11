@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/van1dalgrr-arch/github-watcher/internal/domain"
 	"github.com/van1dalgrr-arch/github-watcher/internal/github"
 	"github.com/van1dalgrr-arch/github-watcher/internal/notify"
 	"github.com/van1dalgrr-arch/github-watcher/internal/store"
@@ -105,7 +106,9 @@ func (w *Watcher) tick(ctx context.Context) (saved, sent int, err error) {
 	var done []int64
 	for _, e := range pending {
 		// История первого запуска и собственные действия на телефон не шлём — только в ленту.
-		if !firstRun && e.Actor != me && w.Rules.Match(e) {
+		// Исключение — пуши: статистика своего пуша в боте и есть смысл уведомления.
+		own := e.Actor == me && e.Kind != domain.EventPush
+		if !firstRun && !own && w.Rules.Match(e) {
 			if err := w.Notifier.Notify(ctx, e); err != nil {
 				w.Log.Warn("notify", "event", e.SourceID, "err", err)
 				continue // не помечаем — повторим на следующем тике

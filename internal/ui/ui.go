@@ -92,7 +92,7 @@ func Kind(k domain.EventKind) string {
 	case domain.EventRelease:
 		return Info.Render("▲")
 	case domain.EventPush:
-		return Faint.Render("↑")
+		return Info.Render("↑")
 	case domain.EventMention:
 		return Warn.Render("@")
 	case domain.EventStar:
@@ -137,19 +137,7 @@ func Interval(s string) string {
 }
 
 // Plural — русское склонение по числу: 1 репозиторий, 2 репозитория, 5 репозиториев.
-func Plural(n int, one, few, many string) string {
-	n %= 100
-	switch {
-	case n >= 11 && n <= 14:
-		return many
-	case n%10 == 1:
-		return one
-	case n%10 >= 2 && n%10 <= 4:
-		return few
-	default:
-		return many
-	}
-}
+func Plural(n int, one, few, many string) string { return domain.Plural(n, one, few, many) }
 
 // LogLines раскрашивает лог GitHub Actions: заголовки job-ов, группы шагов, ошибки, предупреждения, команды.
 // errs — номера строк с ошибками, чтобы TUI мог прыгать по ним.

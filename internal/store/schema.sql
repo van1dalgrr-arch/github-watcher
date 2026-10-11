@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS events (
     repo       TEXT    NOT NULL,
     actor      TEXT    NOT NULL DEFAULT '',
     title      TEXT    NOT NULL,
+    body       TEXT    NOT NULL DEFAULT '', -- подробности (для пуша — коммиты и файлы)
     url        TEXT    NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,          -- unix ms, UTC
     notified   INTEGER NOT NULL DEFAULT 0

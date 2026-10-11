@@ -25,6 +25,7 @@ type client struct {
 	http *http.Client // для скачивания логов по redirect-ссылке
 
 	mu      sync.Mutex
+	pushes  map[string]pushStats // кэш статистики пушей: before..head не меняется
 	me      string
 	mine    map[string]bool // мои репозитории — фильтр для ленты
 	mineAt  time.Time
@@ -361,6 +362,21 @@ func (c *client) EventsSince(ctx context.Context, since time.Time) ([]domain.Eve
 		}
 	}
 
+	// мои собственные пуши в received events не попадают — берём из событий, которые сделал я
+	performed, _, err := c.gh.Activity.ListEventsPerformedByUser(ctx, me, false, &gh.ListOptions{PerPage: 100})
+	if err != nil {
+		return nil, fmt.Errorf("my events: %w", err)
+	}
+	for _, e := range performed {
+		if e.GetType() != "PushEvent" || !mine[e.GetRepo().GetName()] || !e.GetCreatedAt().After(since) {
+			continue
+		}
+		if ev, ok := c.convertEvent(ctx, e); ok {
+			out = append(out, ev)
+		}
+	}
+	out = dedup(out)
+
 	notes, _, err := c.gh.Activity.ListNotifications(ctx, &gh.NotificationListOptions{
 		Participating: true, Since: since, ListOptions: gh.ListOptions{PerPage: 50},
 	})
@@ -546,11 +562,15 @@ func (c *client) convertEvent(ctx context.Context, e *gh.Event) (domain.Event, b
 		ev.Kind, ev.URL = domain.EventComment, p.GetComment().GetHTMLURL()
 		ev.Title = fmt.Sprintf("Комментарий в #%d: %s", p.GetIssue().GetNumber(), oneLine(p.GetComment().GetBody(), 80))
 	case *gh.PushEvent:
+		if !strings.HasPrefix(p.GetRef(), "refs/heads/") || strings.Trim(p.GetHead(), "0") == "" {
+			return ev, false // теги и удаление веток — не пуш кода
+		}
 		branch := strings.TrimPrefix(p.GetRef(), "refs/heads/")
+		st := c.pushStats(ctx, ev.Repo, p.GetBefore(), p.GetHead())
 		ev.Kind = domain.EventPush
-		ev.Title = fmt.Sprintf("Push в %s", branch)
-		if n := p.GetSize(); n > 0 {
-			ev.Title = fmt.Sprintf("Push в %s: %d коммит(ов)", branch, n)
+		ev.Title, ev.Body = st.render(branch)
+		if st.url != "" {
+			ev.URL = st.url
 		}
 	case *gh.ReleaseEvent:
 		if p.GetAction() != "published" {
@@ -611,4 +631,123 @@ func (c *client) SetVariable(ctx context.Context, repo, name, value string) erro
 		_, err = c.gh.Actions.CreateRepoVariable(ctx, owner, rname, gh.ActionsCreateVariableRequest{Name: name, Value: value})
 	}
 	return err
+}
+
+func dedup(events []domain.Event) []domain.Event {
+	seen := map[string]bool{}
+	out := events[:0]
+	for _, e := range events {
+		if !seen[e.SourceID] {
+			seen[e.SourceID] = true
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// pushStats — что принёс пуш: коммиты и изменения по файлам.
+type pushStats struct {
+	commits    []string // "a2d5d07 заголовок коммита"
+	total      int      // коммитов всего (в списке — не больше 10)
+	files      []fileStat
+	add, del   int
+	url        string
+	unknownErr bool // Compare не ответил — покажем, что знаем
+}
+
+type fileStat struct {
+	name     string
+	add, del int
+	status   string
+}
+
+func (c *client) pushStats(ctx context.Context, repo, before, head string) pushStats {
+	key := repo + "@" + before + ".." + head
+	c.mu.Lock()
+	if st, ok := c.pushes[key]; ok {
+		c.mu.Unlock()
+		return st
+	}
+	c.mu.Unlock()
+
+	st := c.fetchPushStats(ctx, repo, before, head)
+	if !st.unknownErr {
+		c.mu.Lock()
+		if c.pushes == nil || len(c.pushes) > 500 {
+			c.pushes = map[string]pushStats{}
+		}
+		c.pushes[key] = st
+		c.mu.Unlock()
+	}
+	return st
+}
+
+func (c *client) fetchPushStats(ctx context.Context, repo, before, head string) pushStats {
+	owner, name, err := split(repo)
+	if err != nil {
+		return pushStats{unknownErr: true}
+	}
+	var (
+		commits []*gh.RepositoryCommit
+		files   []*gh.CommitFile
+		st      pushStats
+	)
+	if strings.Trim(before, "0") == "" { // новая ветка: сравнивать не с чем — берём последний коммит
+		rc, _, err := c.gh.Repositories.GetCommit(ctx, owner, name, head, nil)
+		if err != nil {
+			return pushStats{unknownErr: true}
+		}
+		commits, files, st.total, st.url = []*gh.RepositoryCommit{rc}, rc.Files, 1, rc.GetHTMLURL()
+	} else {
+		cmp, _, err := c.gh.Repositories.CompareCommits(ctx, owner, name, before, head, &gh.ListOptions{PerPage: 100})
+		if err != nil {
+			return pushStats{unknownErr: true}
+		}
+		commits, files, st.total, st.url = cmp.Commits, cmp.Files, cmp.GetTotalCommits(), cmp.GetHTMLURL()
+	}
+	for i := len(commits) - 1; i >= 0 && len(st.commits) < 10; i-- { // новые сверху
+		rc := commits[i]
+		msg, _, _ := strings.Cut(rc.GetCommit().GetMessage(), "\n")
+		st.commits = append(st.commits, rc.GetSHA()[:min(7, len(rc.GetSHA()))]+" "+msg)
+	}
+	for _, f := range files {
+		st.add += f.GetAdditions()
+		st.del += f.GetDeletions()
+		st.files = append(st.files, fileStat{f.GetFilename(), f.GetAdditions(), f.GetDeletions(), f.GetStatus()})
+	}
+	// самые крупные изменения — первыми
+	sort.SliceStable(st.files, func(i, j int) bool {
+		return st.files[i].add+st.files[i].del > st.files[j].add+st.files[j].del
+	})
+	return st
+}
+
+// render — заголовок для ленты и подробности для бота и TUI.
+func (st pushStats) render(branch string) (title, body string) {
+	if st.unknownErr {
+		return "Push в " + branch, ""
+	}
+	title = fmt.Sprintf("Push в %s: %d %s · %d %s · +%d −%d", branch,
+		st.total, domain.Plural(st.total, "коммит", "коммита", "коммитов"),
+		len(st.files), domain.Plural(len(st.files), "файл", "файла", "файлов"), st.add, st.del)
+
+	var b strings.Builder
+	for _, c := range st.commits {
+		b.WriteString("• " + c + "\n")
+	}
+	if extra := st.total - len(st.commits); extra > 0 {
+		fmt.Fprintf(&b, "  …и ещё %d\n", extra)
+	}
+	if len(st.files) > 0 {
+		b.WriteString("\n")
+	}
+	for i, f := range st.files {
+		if i == 8 {
+			fmt.Fprintf(&b, "  …и ещё %d %s\n", len(st.files)-i, domain.Plural(len(st.files)-i, "файл", "файла", "файлов"))
+			break
+		}
+		mark := map[string]string{"added": " (новый)", "removed": " (удалён)", "renamed": " (переименован)"}[f.status]
+		fmt.Fprintf(&b, "+%d −%d  %s%s\n", f.add, f.del, f.name, mark)
+	}
+	return title, strings.TrimRight(b.String(), "\n")
 }

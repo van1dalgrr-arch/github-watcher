@@ -159,7 +159,7 @@ func (m *Model) hints() []string {
 	case tabActions:
 		h = []string{keyHint("enter", "логи"), keyHint("R", "перезапуск"), keyHint("f", "упавшие")}
 	case tabEvents:
-		h = []string{keyHint("enter", "браузер"), keyHint("f", "к репо")}
+		h = []string{keyHint("enter", "подробности"), keyHint("o", "браузер"), keyHint("f", "к репо")}
 	}
 	return append(h, keyHint("?", "помощь"), keyHint("q", "выход"))
 }
@@ -218,10 +218,6 @@ func (m *Model) tabView() string {
 			return m.daemonHint()
 		}
 		return m.logsVP.View()
-	case tabEvents:
-		if !m.daemonUp {
-			return m.daemonHint()
-		}
 	}
 	if m.repo == "" && m.tab != tabRepos && m.tab != tabEvents {
 		return ui.Faint.Render("  выбери репозиторий на вкладке 2")
@@ -256,6 +252,9 @@ func (m *Model) listTitle(n int) string {
 		t = fmt.Sprintf("Запуски Actions · %d", n)
 	case tabEvents:
 		t = fmt.Sprintf("Лента событий · %d", n)
+		if !m.daemonUp {
+			t += ui.Faint.Render("  · напрямую из GitHub, обновляется раз в минуту")
+		}
 	}
 	if l := m.lists[m.tab]; n > m.listHeight() {
 		t += ui.Faint.Render(fmt.Sprintf("  %d/%d", l.cursor+1, n))
@@ -388,15 +387,18 @@ func (m *Model) dashPanels(h int) string {
 		rightW := m.w - leftW
 		topH := min(h/2, 13)
 		left := lipgloss.JoinVertical(lipgloss.Left,
-			m.profilePanel(leftW, topH), m.daemonPanel(leftW, h-topH))
+			m.profilePanel(leftW, topH), m.pushPanel(leftW, h-topH))
 		right := lipgloss.JoinVertical(lipgloss.Left,
 			m.ciPanel(rightW, topH), m.feedPanel(rightW, h-topH))
 		return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	}
 	// узкий терминал — всё в колонку, лента забирает остаток
 	p := m.profilePanel(m.w, 8)
-	ci := m.ciPanel(m.w, 10)
-	return lipgloss.JoinVertical(lipgloss.Left, p, ci, m.feedPanel(m.w, max(h-18, 5)))
+	ci := m.ciPanel(m.w, 8)
+	if h-16 >= 22 { // панель пуша — только если ленте остаётся хотя бы 12 строк
+		return lipgloss.JoinVertical(lipgloss.Left, p, ci, m.pushPanel(m.w, 10), m.feedPanel(m.w, h-26))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, p, ci, m.feedPanel(m.w, max(h-16, 5)))
 }
 
 func (m *Model) profilePanel(w, h int) string {
@@ -470,34 +472,28 @@ func (m *Model) ciPanel(w, h int) string {
 	return panel("CI · последние запуски", w, h, lines)
 }
 
-func (m *Model) daemonPanel(w, h int) string {
-	if !m.daemonUp {
-		return panel("Демон", w, h, []string{
-			ui.Faint.Render("○ не запущен"),
-			"",
-			"Чтобы получать события на телефон:",
-			sKey.Render("gw daemon"),
-			"",
-			ui.Faint.Render("Telegram: ") + sKey.Render("gw telegram <token>"),
-		})
+// pushPanel — последний пуш: что за коммиты и сколько строк поменялось.
+func (m *Model) pushPanel(w, h int) string {
+	var push *domain.Event
+	for i := range m.events {
+		if m.events[i].Kind == domain.EventPush {
+			push = &m.events[i]
+			break
+		}
 	}
-	s := m.daemonStatus
-	tg := ui.Good.Render("● подключён")
-	if m.cfg.TelegramChat == "" {
-		tg = ui.Warn.Render("○ не настроен")
+	switch {
+	case push == nil && m.events == nil:
+		return panel("Последний пуш", w, h, []string{ui.Faint.Render(m.spin.View() + " загружаю ленту…")})
+	case push == nil:
+		return panel("Последний пуш", w, h, []string{ui.Faint.Render("за неделю пушей не было")})
 	}
 	lines := []string{
-		ui.Good.Render("● работает") + ui.Faint.Render(" · с "+s.Started.Format("02.01 15:04")),
+		ui.Bold.Render(push.Repo) + ui.Faint.Render(" · "+ui.Ago(push.CreatedAt)+" назад"),
+		ui.Info.Render(push.Title),
 		"",
-		fit(ui.Faint.Render("опрос"), 14) + "каждые " + ui.Interval(s.Interval) + ui.Faint.Render(" · последний "+ui.Ago(s.LastTick)+" назад"),
-		fit(ui.Faint.Render("событий"), 14) + strconv.Itoa(s.Saved),
-		fit(ui.Faint.Render("на телефон"), 14) + strconv.Itoa(s.Sent),
-		fit(ui.Faint.Render("telegram"), 14) + tg,
 	}
-	if s.LastError != "" {
-		lines = append(lines, "", ui.Bad.Render("✗ "+s.LastError))
-	}
-	return panel("Демон", w, h, lines)
+	lines = append(lines, colorBody(push.Body)...)
+	return panel("Последний пуш", w, h, lines)
 }
 
 func (m *Model) feedPanel(w, h int) string {
@@ -549,6 +545,26 @@ func (m *Model) wrapBody(body string) []string {
 		return []string{ui.Faint.Render("(без описания)")}
 	}
 	return strings.Split(ansi.Wordwrap(body, max(m.w-2, 20), ""), "\n")
+}
+
+// colorBody раскрашивает подробности пуша: sha коммитов акцентом, +строки зелёным, −строки красным.
+func colorBody(body string) []string {
+	var out []string
+	for l := range strings.Lines(body) {
+		l = strings.TrimRight(l, "\n")
+		switch {
+		case strings.HasPrefix(l, "• ") && len(l) > 10:
+			sha, msg, _ := strings.Cut(strings.TrimPrefix(l, "• "), " ")
+			out = append(out, ui.Faint.Render("• ")+sKey.Render(sha)+" "+msg)
+		case strings.HasPrefix(l, "+"):
+			counts, name, _ := strings.Cut(l, "  ")
+			add, del, _ := strings.Cut(counts, " ")
+			out = append(out, fit(ui.Good.Render(add)+" "+ui.Bad.Render(del), 12)+name)
+		default:
+			out = append(out, ui.Faint.Render(l))
+		}
+	}
+	return out
 }
 
 // colorLog подсвечивает уровни в строках slog: level=ERROR красным, WARN жёлтым.

@@ -211,3 +211,30 @@ func TestActions(t *testing.T) {
 		t.Fatalf("esc не сбросил фильтр: %d строк", n)
 	}
 }
+
+func (f *fakeGH) EventsSince(context.Context, time.Time) ([]domain.Event, error) {
+	return []domain.Event{{
+		SourceID: "e:1", Kind: domain.EventPush, Repo: "octocat/api", Actor: "octocat", CreatedAt: now,
+		Title: "Push в main: 2 коммита · 3 файла · +40 −7",
+		Body:  "• a1b2c3d Добавить кэш\n• d4e5f6a Тесты\n\n+30 −5  cache.go (новый)\n+10 −2  main.go",
+	}}, nil
+}
+
+// без демона лента берётся прямо из GitHub, Enter на пуше открывает коммиты и файлы
+func TestPushWithoutDaemon(t *testing.T) {
+	gh := &fakeGH{}
+	m := newModel(context.Background(), gh, daemonclient.New("http://127.0.0.1:1"), config.Config{}, "octocat/api")
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	_, cmd := m.Update(daemonMsg{}) // демон не ответил
+	run(m, cmd)
+	if len(m.events) != 1 {
+		t.Fatalf("лента без демона не загрузилась: %d", len(m.events))
+	}
+	if s := screen(t, m, "dashboard без демона"); !strings.Contains(s, "Последний пуш") || !strings.Contains(s, "cache.go") {
+		t.Errorf("нет панели пуша:\n%s", s)
+	}
+	press(m, "6", "enter")
+	if s := screen(t, m, "пуш"); m.viewer == nil || !strings.Contains(s, "a1b2c3d") || !strings.Contains(s, "+30") {
+		t.Errorf("подробности пуша:\n%s", s)
+	}
+}

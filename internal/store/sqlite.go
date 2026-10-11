@@ -34,6 +34,14 @@ func Open(ctx context.Context, path string) (*SQLite, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("schema: %w", err)
 	}
+	// базы, созданные до появления body: CREATE TABLE IF NOT EXISTS их не трогает — добавляем колонку
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('events') WHERE name = 'body'`).Scan(&n); err == nil && n == 0 {
+		if _, err := db.ExecContext(ctx, `ALTER TABLE events ADD COLUMN body TEXT NOT NULL DEFAULT ''`); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("migrate: %w", err)
+		}
+	}
 	return &SQLite{db: db}, nil
 }
 
@@ -47,8 +55,8 @@ func (s *SQLite) Save(ctx context.Context, events []domain.Event) ([]domain.Even
 	}
 	defer func() { _ = tx.Rollback() }()
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO events (source_id, kind, repo, actor, title, url, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO events (source_id, kind, repo, actor, title, body, url, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (source_id) DO NOTHING`)
 	if err != nil {
 		return nil, err
@@ -57,7 +65,7 @@ func (s *SQLite) Save(ctx context.Context, events []domain.Event) ([]domain.Even
 
 	var fresh []domain.Event
 	for _, e := range events {
-		res, err := stmt.ExecContext(ctx, e.SourceID, e.Kind, e.Repo, e.Actor, e.Title, e.URL, e.CreatedAt.UTC().UnixMilli())
+		res, err := stmt.ExecContext(ctx, e.SourceID, e.Kind, e.Repo, e.Actor, e.Title, e.Body, e.URL, e.CreatedAt.UTC().UnixMilli())
 		if err != nil {
 			return nil, err
 		}
@@ -71,7 +79,7 @@ func (s *SQLite) Save(ctx context.Context, events []domain.Event) ([]domain.Even
 }
 
 func (s *SQLite) List(ctx context.Context, f Filter) ([]domain.Event, error) {
-	q := `SELECT id, source_id, kind, repo, actor, title, url, created_at, notified FROM events WHERE 1=1`
+	q := `SELECT id, source_id, kind, repo, actor, title, body, url, created_at, notified FROM events WHERE 1=1`
 	var args []any
 	if f.Repo != "" {
 		q += ` AND repo = ?`
@@ -96,7 +104,7 @@ func (s *SQLite) List(ctx context.Context, f Filter) ([]domain.Event, error) {
 }
 
 func (s *SQLite) Pending(ctx context.Context) ([]domain.Event, error) {
-	return s.query(ctx, `SELECT id, source_id, kind, repo, actor, title, url, created_at, notified
+	return s.query(ctx, `SELECT id, source_id, kind, repo, actor, title, body, url, created_at, notified
 		FROM events WHERE NOT notified ORDER BY created_at, id LIMIT 200`)
 }
 
@@ -134,7 +142,7 @@ func (s *SQLite) query(ctx context.Context, q string, args ...any) ([]domain.Eve
 	for rows.Next() {
 		var e domain.Event
 		var ms int64
-		if err := rows.Scan(&e.ID, &e.SourceID, &e.Kind, &e.Repo, &e.Actor, &e.Title, &e.URL, &ms, &e.Notified); err != nil {
+		if err := rows.Scan(&e.ID, &e.SourceID, &e.Kind, &e.Repo, &e.Actor, &e.Title, &e.Body, &e.URL, &ms, &e.Notified); err != nil {
 			return nil, err
 		}
 		e.CreatedAt = time.UnixMilli(ms)

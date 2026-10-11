@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
@@ -66,6 +67,7 @@ type Model struct {
 	runsKey    string
 	dashRuns   []domain.WorkflowRun
 
+	feedAt       time.Time // когда последний раз брали ленту напрямую из GitHub
 	daemonUp     bool
 	daemonStatus watcher.Status
 	events       []domain.Event
@@ -226,6 +228,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if follow {
 				m.logsVP.GotoBottom()
 			}
+			return m, nil
+		}
+		if time.Since(m.feedAt) > time.Minute { // демона нет — раз в минуту берём ленту сами
+			return m, m.loadFeed()
 		}
 		return m, nil
 
@@ -258,6 +264,10 @@ func (m *Model) handleLoaded(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if first {
 			return m, tea.Batch(m.loadDashRuns(), m.ensure())
+		}
+	case feedMsg:
+		if !m.daemonUp {
+			m.events = msg.events
 		}
 	case dashRunsMsg:
 		m.dashRuns = msg.runs
@@ -568,7 +578,15 @@ func (m *Model) tabKey(k string) tea.Cmd {
 		}
 		e := m.events[vis[cur]]
 		switch k {
-		case "enter", "space", "o":
+		case "enter", "space":
+			if e.Body != "" { // у пуша — коммиты и файлы
+				m.viewer = m.newViewer(e.Repo+" · "+e.Title, e.URL, colorBody(e.Body))
+				return nil
+			}
+			if e.URL != "" {
+				return openURL(e.URL)
+			}
+		case "o":
 			if e.URL != "" {
 				return openURL(e.URL)
 			}

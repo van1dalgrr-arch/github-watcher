@@ -104,7 +104,23 @@ type Event struct {
 	Repo      string    `json:"repo"`
 	Actor     string    `json:"actor,omitempty"`
 	Title     string    `json:"title"`
+	Body      string    `json:"body,omitempty"` // подробности: для пуша — коммиты и файлы с +/−
 	URL       string    `json:"url,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	Notified  bool      `json:"notified"`
+}
+
+// Plural — русское склонение по числу: 1 коммит, 2 коммита, 5 коммитов.
+func Plural(n int, one, few, many string) string {
+	n %= 100
+	switch {
+	case n >= 11 && n <= 14:
+		return many
+	case n%10 == 1:
+		return one
+	case n%10 >= 2 && n%10 <= 4:
+		return few
+	default:
+		return many
+	}
 }

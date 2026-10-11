@@ -66,9 +66,10 @@ func TestTick(t *testing.T) {
 	}
 
 	gh.events = append(gh.events,
-		domain.Event{SourceID: "mine", Kind: domain.EventCIFailed, Repo: "me/app", Actor: "me", CreatedAt: t0.Add(time.Minute)},
-		domain.Event{SourceID: "push", Kind: domain.EventPush, Repo: "me/app", Actor: "bob", CreatedAt: t0.Add(2 * time.Minute)},
+		domain.Event{SourceID: "mine", Kind: domain.EventIssue, Repo: "me/app", Actor: "me", CreatedAt: t0.Add(time.Minute)},
+		domain.Event{SourceID: "star", Kind: domain.EventStar, Repo: "me/app", Actor: "bob", CreatedAt: t0.Add(2 * time.Minute)},
 		domain.Event{SourceID: "ci", Kind: domain.EventCIFailed, Repo: "me/app", Actor: "bob", CreatedAt: t0.Add(3 * time.Minute)},
+		domain.Event{SourceID: "mypush", Kind: domain.EventPush, Repo: "me/app", Actor: "me", CreatedAt: t0.Add(4 * time.Minute)},
 	)
 
 	// Telegram недоступен — ничего не теряем
@@ -81,9 +82,9 @@ func TestTick(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// свои действия и пуши (не в правилах по умолчанию) — только в ленте; CI упал — на телефон
-	if saved != 0 || sent != 1 || len(n.sent) != 1 || n.sent[0] != "ci" {
-		t.Fatalf("saved=%d sent=%d %v, want только [ci]", saved, sent, n.sent)
+	// свой issue и звезда (не в правилах по умолчанию) — только в ленте; CI упал и свой пуш — на телефон
+	if saved != 0 || sent != 2 || len(n.sent) != 2 || n.sent[0] != "ci" || n.sent[1] != "mypush" {
+		t.Fatalf("saved=%d sent=%d %v, want [ci mypush]", saved, sent, n.sent)
 	}
 	if _, sent, _ := w.tick(ctx); sent != 0 {
 		t.Fatalf("повторная отправка: %d", sent)

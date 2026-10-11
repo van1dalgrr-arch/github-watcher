@@ -49,6 +49,13 @@ func Icon(k domain.EventKind) string {
 
 func (t *Telegram) Notify(ctx context.Context, e domain.Event) error {
 	text := fmt.Sprintf("%s <b>%s</b>\n%s", Icon(e.Kind), html.EscapeString(e.Repo), html.EscapeString(e.Title))
+	if e.Body != "" {
+		body := e.Body
+		if r := []rune(body); len(r) > 3000 { // лимит сообщения Telegram — 4096 символов
+			body = string(r[:3000]) + "…"
+		}
+		text += "\n\n<pre>" + html.EscapeString(body) + "</pre>"
+	}
 	if e.Actor != "" {
 		text += "\n<i>" + html.EscapeString(e.Actor) + "</i>"
 	}

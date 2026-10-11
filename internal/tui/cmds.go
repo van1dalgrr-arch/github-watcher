@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"runtime"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -40,6 +41,7 @@ type (
 		run  domain.WorkflowRun
 		text string
 	}
+	feedMsg struct{ events []domain.Event } // лента напрямую из GitHub, когда демон не запущен
 	errMsg  struct{ err error }
 	doneMsg struct { // результат действия (merge, комментарий…)
 		text   string
@@ -156,6 +158,16 @@ func (m *Model) loadDaemon() tea.Cmd {
 		logs, _ := m.daemon.Logs(ctx)
 		return daemonMsg{status: &st, events: events, logs: logs}
 	}
+}
+
+// loadFeed — лента за неделю прямо из GitHub: без демона TUI тоже показывает пуши и CI.
+func (m *Model) loadFeed() tea.Cmd {
+	m.feedAt = time.Now()
+	return m.load(func(ctx context.Context) (tea.Msg, error) {
+		events, err := m.gh.EventsSince(ctx, time.Now().Add(-7*24*time.Hour))
+		slices.Reverse(events) // новые сверху, как у демона
+		return feedMsg{events}, err
+	})
 }
 
 func (m *Model) loadRunLogs(run domain.WorkflowRun) tea.Cmd {

@@ -54,3 +54,30 @@ func TestSQLite(t *testing.T) {
 		t.Fatalf("List: новые должны быть первыми, got %+v", list)
 	}
 }
+
+func TestMigrateBody(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "old.db")
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// имитируем базу из прошлой версии: без колонки body
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE events DROP COLUMN body`); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatalf("миграция: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.Save(ctx, []domain.Event{{SourceID: "p", Kind: domain.EventPush, Title: "Push", Body: "• abc fix", CreatedAt: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := s.List(ctx, Filter{})
+	if len(list) != 1 || list[0].Body != "• abc fix" {
+		t.Fatalf("body не сохранился: %+v", list)
+	}
+}

@@ -18,10 +18,10 @@ type Rules struct {
 	Repos map[string]bool // пусто — все репозитории
 }
 
-// DefaultKinds — то, ради чего стоит отвлечься: пуши и звёзды по умолчанию только в ленте.
+// DefaultKinds — то, ради чего стоит отвлечься: звёзды и успешный CI по умолчанию только в ленте.
 var DefaultKinds = []domain.EventKind{
 	domain.EventPROpened, domain.EventPRMerged, domain.EventPRReview, domain.EventIssue,
-	domain.EventComment, domain.EventCIFailed, domain.EventRelease, domain.EventMention,
+	domain.EventComment, domain.EventCIFailed, domain.EventRelease, domain.EventMention, domain.EventPush,
 }
 
 // ParseRules собирает правила из строк вида "ci_failed,mention" и "me/app,me/api".

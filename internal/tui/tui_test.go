@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +28,7 @@ type fakeGH struct {
 	closed        []int
 	comments      []string
 	reviews       []string
+	created       []string
 }
 
 var now = time.Now()
@@ -548,5 +551,77 @@ func TestIssueAndRepoPages(t *testing.T) {
 	press(m, "p")
 	if m.topPage() != nil || m.tab != tabPRs || m.repo != "octocat/api" {
 		t.Fatalf("p со страницы репозитория: вкладка %d, репо %s", m.tab, m.repo)
+	}
+}
+
+func (f *fakeGH) CreatePR(_ context.Context, repo, head, base, title, body string, draft bool) (domain.PullRequest, error) {
+	f.created = append(f.created, fmt.Sprintf("%s→%s|%s|%s|draft=%v", head, base, title, body, draft))
+	return domain.PullRequest{Repo: repo, Number: 8, Title: title, State: "open"}, nil
+}
+
+// новый PR: ветка не на GitHub → push в терминале → заготовка из коммитов → d — черновиком → страница PR
+func TestNewPR(t *testing.T) {
+	sh := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	root := t.TempDir()
+	origin, clone := filepath.Join(root, "origin.git"), filepath.Join(root, "api")
+	sh(root, "init", "-q", "--bare", "-b", "main", origin)
+	sh(root, "clone", "-q", origin, clone)
+	sh(clone, "commit", "-q", "--allow-empty", "-m", "init")
+	sh(clone, "push", "-q", "origin", "main")
+	sh(clone, "remote", "set-head", "origin", "main")
+	sh(clone, "switch", "-q", "-c", "feat/cache")
+	sh(clone, "commit", "-q", "--allow-empty", "-m", "Добавить кэш", "-m", "TTL — 5 минут")
+
+	m, gh := newTestModel(t, 140, 44)
+	m.findClone = func(string) string { return clone }
+	press(m, "3", "n")
+	if m.confirm == nil || !strings.Contains(m.confirm.question, "feat/cache") {
+		t.Fatalf("незапушенная ветка — сначала вопрос про push: %+v", m.confirm)
+	}
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	run(m, cmd) // git push в терминале, после него — снова newPR, который зовёт редактор
+	if out := strings.Join(m.term.lines, "\n"); !strings.Contains(out, "git push -u origin") {
+		t.Fatalf("push не виден в терминале:\n%s", out)
+	}
+	if gitOut(clone, "rev-parse", "--abbrev-ref", "@{upstream}") != "origin/feat/cache" {
+		t.Fatal("ветка не запушилась")
+	}
+	file := filepath.Join(os.TempDir(), "gw-pr-feat-cache.md")
+	tpl, err := os.ReadFile(file)
+	if err != nil || !strings.HasPrefix(string(tpl), "Добавить кэш\n\nTTL — 5 минут") || !strings.Contains(string(tpl), "<!--") {
+		t.Fatalf("заготовка PR: %q %v", tpl, err)
+	}
+	// «пользователь» дописал описание в редакторе и закрыл его
+	if err := os.WriteFile(file, []byte("Кэш для заказов\n\nTTL — 5 минут.\n\n<!-- подсказка -->\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, cmd = m.Update(editedMsg{file: file, repo: "octocat/api", head: "feat/cache", base: "main"})
+	run(m, cmd)
+	if m.confirm == nil || len(m.confirm.alt) != 1 {
+		t.Fatal("после редактора — подтверждение с вариантом «черновиком»")
+	}
+	screen(t, m, "new pr confirm")
+	press(m, "d")
+	if len(gh.created) != 1 || gh.created[0] != "feat/cache→main|Кэш для заказов|TTL — 5 минут.|draft=true" {
+		t.Fatalf("создан: %v", gh.created)
+	}
+	if p := m.topPage(); p == nil || !strings.Contains(p.title, "#8") {
+		t.Fatal("после создания — страница нового PR")
+	}
+}
+
+func TestHumanBranch(t *testing.T) {
+	for in, want := range map[string]string{"feat/cache-layer": "Cache layer", "fix_login": "Fix login", "x": "X"} {
+		if got := humanBranch(in); got != want {
+			t.Errorf("humanBranch(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

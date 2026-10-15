@@ -35,6 +35,7 @@ type Client interface {
 	RerunWorkflow(ctx context.Context, repo string, runID int64, onlyFailed bool) error
 	Review(ctx context.Context, repo string, number int, event, body string) error // APPROVE / REQUEST_CHANGES / COMMENT
 	ReopenIssue(ctx context.Context, repo string, number int) error
+	CreatePR(ctx context.Context, repo, head, base, title, body string, draft bool) (domain.PullRequest, error)
 
 	// для watcher-а: всё новое с момента since (Events + Notifications + Actions)
 	EventsSince(ctx context.Context, since time.Time) ([]domain.Event, error)

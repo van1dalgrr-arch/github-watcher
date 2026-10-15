@@ -89,11 +89,13 @@ type Model struct {
 	help      bool
 	pages     []*page // открытые страницы (PR, issue, репозиторий, коммит), сверху — последняя
 	pageSeq   int
-	term      term   // панель-терминал внизу (`:`)
-	gitTerm   term   // Dashboard: команды для git в папке репозитория
-	daemon2   term   // Dashboard: gw daemon, запущенный из TUI
-	daemonCmd string // чем запускать демона; пусто — этот же gw с аргументом daemon (тесты подставляют своё)
-	code      code   // вкладка Code
+	term      term                     // панель-терминал внизу (`:`)
+	gitTerm   term                     // Dashboard: команды для git в папке репозитория
+	daemon2   term                     // Dashboard: gw daemon, запущенный из TUI
+	daemonCmd string                   // чем запускать демона; пусто — этот же gw с аргументом daemon (тесты подставляют своё)
+	findClone func(repo string) string // где искать клон; nil — findClone (тесты подставляют свою папку)
+	editor    string                   // чем править текст PR; пусто — $VISUAL / $EDITOR
+	code      code                     // вкладка Code
 }
 
 type prompt struct {
@@ -105,6 +107,7 @@ type prompt struct {
 type confirm struct {
 	question string
 	onYes    func(m *Model) tea.Cmd
+	alt      []pageKey // дополнительные ответы, кроме y / n (например, d — черновиком)
 }
 
 type viewer struct {
@@ -277,11 +280,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, t.wait()
 
 	case termDoneMsg:
-		m.termByID(msg.id).done(msg)
+		t := m.termByID(msg.id)
+		t.done(msg)
+		if then := t.then; then != nil { // команду запустили ради следующего шага (git push → создать PR)
+			t.then = nil
+			return m, then(m, msg.code)
+		}
 		if msg.id == termDaemon {
 			return m, m.loadDaemon() // демон остановился — шапка и панели узнают сразу
 		}
 		return m, nil
+
+	case editedMsg:
+		return m, m.edited(msg)
 
 	case previewMsg:
 		if msg.token == m.code.token && m.tab == tabCode {
@@ -393,6 +404,10 @@ func (m *Model) handleLoaded(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.openLogs(msg.run, msg.text)
 	case pageMsg:
 		m.fillPage(msg)
+	case prCreatedMsg:
+		m.setFlash(fmt.Sprintf("✓ PR #%d создан", msg.pr.Number), false)
+		m.prsKey = "" // список PR перечитается при возврате
+		return m, m.openPRPage(msg.pr.Repo, msg.pr.Number, msg.pr.Title)
 	case pageDoneMsg:
 		m.setFlash("✓ "+msg.text, false)
 		if p := m.pageByID(msg.id); p != nil {
@@ -489,6 +504,11 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		m.confirm = nil
 		if k == "y" || k == "enter" || k == "д" {
 			return c.onYes(m)
+		}
+		for _, a := range c.alt {
+			if a.key == k {
+				return a.do(m)
+			}
 		}
 		m.setFlash("отменено", false)
 		return nil
@@ -701,6 +721,9 @@ func (m *Model) tabKey(k string) tea.Cmd {
 		}
 
 	case tabPRs:
+		if k == "n" {
+			return m.newPR()
+		}
 		if k == "s" {
 			m.prState = nextState(m.prState)
 			m.lists[tabPRs] = list{}

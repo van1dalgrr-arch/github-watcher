@@ -31,10 +31,11 @@ type term struct {
 	dir           string
 	in            textinput.Model
 	vp            viewport.Model
-	cols, rows    int                     // размер PTY — по размеру панели (layout)
-	repo          string                  // git-терминал: чей клон ищем
-	clone, moved  bool                    // git-терминал: папка — клон repo; ушли из неё через cd
-	format        func([]string) []string // как показывать вывод; nil — как есть
+	cols, rows    int                              // размер PTY — по размеру панели (layout)
+	then          func(m *Model, code int) tea.Cmd // что сделать, когда команда закончится
+	repo          string                           // git-терминал: чей клон ищем
+	clone, moved  bool                             // git-терминал: папка — клон repo; ушли из неё через cd
+	format        func([]string) []string          // как показывать вывод; nil — как есть
 
 	lines   []string // готовые строки вывода (уже без лишних escape-последовательностей)
 	partial string   // текущая, ещё не законченная строка

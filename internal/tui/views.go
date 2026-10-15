@@ -123,6 +123,8 @@ func (m *Model) footerView() string {
 	switch {
 	case m.filtering:
 		left = sKey.Render("/") + " " + m.filterIn.View()
+	case m.flash != "" && m.flashBad: // ошибка важнее спиннера: иначе её не видно, пока что-то грузится
+		left = ui.Bad.Render(m.flash)
 	case m.loading > 0:
 		left = m.spin.View() + " " + ui.Faint.Render("загрузка…")
 		if m.flash != "" && !m.flashBad {
@@ -175,7 +177,7 @@ func (m *Model) hints() []string {
 	case tabRepos:
 		h = []string{keyHint("enter", "страница"), keyHint("p", "его PR"), keyHint("o", "браузер")}
 	case tabPRs:
-		h = []string{keyHint("enter", "открыть"), keyHint("m", "merge"), keyHint("c", "коммент"), keyHint("s", m.prState)}
+		h = []string{keyHint("enter", "открыть"), keyHint("n", "новый"), keyHint("m", "merge"), keyHint("c", "коммент"), keyHint("s", m.prState)}
 	case tabIssues:
 		h = []string{keyHint("n", "новый"), keyHint("x", "закрыть"), keyHint("c", "коммент"), keyHint("s", m.issueState)}
 	case tabActions:
@@ -192,7 +194,11 @@ func (m *Model) modalView() string {
 	w := min(m.w-4, 72)
 	if m.confirm != nil {
 		q := lipgloss.NewStyle().Width(w - 6).Render(m.confirm.question)
-		return sModal.Width(w).Render(q + "\n\n" + keyHint("y", "да") + "   " + keyHint("n", "нет"))
+		keys := keyHint("y", "да")
+		for _, a := range m.confirm.alt {
+			keys += "   " + keyHint(a.key, a.hint)
+		}
+		return sModal.Width(w).Render(q + "\n\n" + keys + "   " + keyHint("n", "нет"))
 	}
 	m.prompt.in.SetWidth(w - 6)
 	return sModal.Width(w).Render(ui.Title.Render(m.prompt.title) + "\n\n" + m.prompt.in.View() +

@@ -351,3 +351,20 @@ func (c *client) ReopenIssue(ctx context.Context, repo string, number int) error
 	_, _, err = c.gh.Issues.Update(ctx, owner, name, number, gh.UpdateIssueRequest{State: &open})
 	return err
 }
+
+// CreatePR — новый PR из ветки head в base (ветка уже должна быть на GitHub).
+func (c *client) CreatePR(ctx context.Context, repo, head, base, title, body string, draft bool) (domain.PullRequest, error) {
+	owner, name, err := split(repo)
+	if err != nil {
+		return domain.PullRequest{}, err
+	}
+	req := gh.CreatePullRequest{Title: &title, Head: head, Base: base, Draft: &draft}
+	if body != "" {
+		req.Body = &body
+	}
+	p, _, err := c.gh.PullRequests.Create(ctx, owner, name, req)
+	if err != nil {
+		return domain.PullRequest{}, err
+	}
+	return domain.PullRequest{Repo: repo, Number: p.GetNumber(), Title: p.GetTitle(), URL: p.GetHTMLURL(), Head: head, Base: base, State: "open", Draft: draft}, nil
+}

@@ -126,7 +126,7 @@ func mergeableText(d domain.PRDetail) string {
 
 // checkoutPR — PR к себе: ветка pr-N в клоне репозитория, команда видна в терминале внизу.
 func (m *Model) checkoutPR(repo string, number int) tea.Cmd {
-	dir := findClone(repo)
+	dir := m.clone(repo)
 	if dir == "" {
 		m.setFlash("клона "+repo+" не нашёл — сначала git clone (терминал git на Dashboard)", true)
 		return nil

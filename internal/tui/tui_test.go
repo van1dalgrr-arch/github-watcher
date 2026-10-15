@@ -30,6 +30,7 @@ type fakeGH struct {
 	reviews       []string
 	created       []string
 	cancelled     []int64
+	read, done    []string
 }
 
 var now = time.Now()
@@ -181,6 +182,11 @@ func TestScreens(t *testing.T) {
 		screen(t, m, name("events"))
 		press(m, "7")
 		screen(t, m, name("logs"))
+		run(m, m.loadInbox())
+		press(m, "9")
+		if s := screen(t, m, name("inbox")); !strings.Contains(s, "просят ревью") {
+			t.Errorf("inbox:\n%s", s)
+		}
 		press(m, "?")
 		screen(t, m, name("help"))
 	}
@@ -691,5 +697,42 @@ func TestRunPage(t *testing.T) {
 	press(m, "X", "y")
 	if len(gh.cancelled) != 1 || gh.cancelled[0] != 2 {
 		t.Fatalf("отмена: %v", gh.cancelled)
+	}
+}
+
+func (f *fakeGH) Notifications(context.Context, bool) ([]domain.Notification, error) {
+	return []domain.Notification{
+		{ID: "1", Repo: "octocat/api", Type: "PullRequest", Title: "Добавить кэш", Reason: "review_requested", Unread: true, Number: 7, UpdatedAt: now},
+		{ID: "2", Repo: "octocat/web", Type: "Issue", Title: "Падает на пустом конфиге", Reason: "mention", Unread: true, Number: 3, UpdatedAt: now},
+		{ID: "3", Repo: "octocat/api", Type: "Release", Title: "v1.2.0", Reason: "subscribed", UpdatedAt: now.Add(-time.Hour)},
+	}, nil
+}
+func (f *fakeGH) MarkRead(_ context.Context, id string) error {
+	f.read = append(f.read, id)
+	return nil
+}
+func (f *fakeGH) MarkDone(_ context.Context, id string) error {
+	f.done = append(f.done, id)
+	return nil
+}
+func (f *fakeGH) MarkAllRead(context.Context) error { return nil }
+
+// входящие: счётчик в шапке, enter — страница PR и «прочитано», d — убрать
+func TestInbox(t *testing.T) {
+	m, gh := newTestModel(t, 140, 40)
+	run(m, m.loadInbox())
+	if s := screen(t, m, "header"); !strings.Contains(s, "✉ 2") {
+		t.Errorf("в шапке нет счётчика непрочитанных:\n%s", strings.Split(s, "\n")[0])
+	}
+	press(m, "9", "enter")
+	if p := m.topPage(); p == nil || !strings.Contains(p.title, "#7") {
+		t.Fatal("enter на уведомлении о PR — его страница")
+	}
+	if len(gh.read) != 1 || gh.read[0] != "1" || m.unread() != 1 {
+		t.Fatalf("прочитано: %v, непрочитанных %d", gh.read, m.unread())
+	}
+	press(m, "esc", "j", "d")
+	if len(gh.done) != 1 || gh.done[0] != "2" || len(m.inbox) != 2 {
+		t.Fatalf("d — убрать: %v, осталось %d", gh.done, len(m.inbox))
 	}
 }

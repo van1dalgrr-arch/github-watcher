@@ -45,6 +45,12 @@ type Client interface {
 	Workflows(ctx context.Context, repo string) ([]domain.Workflow, error)
 	Dispatch(ctx context.Context, repo string, workflowID int64, ref string) error
 
+	// входящие: уведомления GitHub
+	Notifications(ctx context.Context, all bool) ([]domain.Notification, error)
+	MarkRead(ctx context.Context, id string) error
+	MarkDone(ctx context.Context, id string) error
+	MarkAllRead(ctx context.Context) error
+
 	// для watcher-а: всё новое с момента since (Events + Notifications + Actions)
 	EventsSince(ctx context.Context, since time.Time) ([]domain.Event, error)
 

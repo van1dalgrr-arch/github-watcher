@@ -60,6 +60,9 @@ func (m *Model) headerView() string {
 	if m.me != "" {
 		right = append(right, ui.Faint.Render("@"+m.me))
 	}
+	if n := m.unread(); n > 0 {
+		right = append(right, sKey.Render("✉ "+strconv.Itoa(n)))
+	}
 	if m.daemonUp {
 		d := ui.Good.Render("● daemon")
 		if m.daemonStatus.LastError != "" {
@@ -99,6 +102,11 @@ func (m *Model) badge(t tab) string {
 		n = len(m.prs)
 	case tabIssues:
 		n = len(m.issues)
+	case tabInbox:
+		if u := m.unread(); u > 0 {
+			return sKey.Render(strconv.Itoa(u))
+		}
+		return ""
 	case tabActions:
 		for _, r := range m.runs {
 			if r.Status != "completed" {
@@ -186,6 +194,12 @@ func (m *Model) hints() []string {
 		h = []string{keyHint("enter", "подробности"), keyHint("o", "браузер"), keyHint("f", "к репо")}
 	case tabCode:
 		h = []string{keyHint("enter", "открыть"), keyHint("/", "найти файл"), keyHint("o", "браузер")}
+	case tabInbox:
+		what := "все"
+		if m.inboxAll {
+			what = "непрочитанные"
+		}
+		h = []string{keyHint("enter", "открыть"), keyHint("m", "прочитано"), keyHint("d", "убрать"), keyHint("M", "всё прочитано"), keyHint("s", what)}
 	}
 	return append(h, keyHint(":", "терминал"), keyHint("?", "помощь"), keyHint("q", "выход"))
 }
@@ -215,7 +229,7 @@ func (m *Model) helpView() string {
 	}
 	cols := []string{
 		sec("Везде",
-			[2]string{"1…8", "вкладки"}, [2]string{"tab / h l", "соседняя вкладка"},
+			[2]string{"1…9", "вкладки"}, [2]string{"tab / h l", "соседняя вкладка"},
 			[2]string{"↑↓ / j k", "по списку"}, [2]string{"g / G", "в начало / конец"},
 			[2]string{"/", "фильтр"}, [2]string{"r", "обновить"}, [2]string{"o", "открыть в браузере"},
 			[2]string{":", "терминал"},
@@ -230,7 +244,8 @@ func (m *Model) helpView() string {
 			[2]string{"enter", "логи запуска"}, [2]string{"e / E", "к след./пред. ошибке"},
 			[2]string{"R", "перезапустить"}, [2]string{"f", "только упавшие"},
 			[2]string{"f (Events)", "репо события"},
-			[2]string{"8 → /", "найти файл в коде"}),
+			[2]string{"8 → /", "найти файл в коде"},
+			[2]string{"9", "входящие: enter, d, M"}),
 	}
 	for i := range cols {
 		cols[i] = lipgloss.NewStyle().Width(34).Render(cols[i])
@@ -254,7 +269,7 @@ func (m *Model) tabView() string {
 		}
 		return m.logsVP.View()
 	}
-	if m.repo == "" && m.tab != tabRepos && m.tab != tabEvents {
+	if m.repo == "" && m.tab != tabRepos && m.tab != tabEvents && m.tab != tabInbox {
 		return ui.Faint.Render("  выбери репозиторий на вкладке 2")
 	}
 	if m.tab == tabCode {
@@ -288,6 +303,8 @@ func (m *Model) listTitle(n int) string {
 		t = fmt.Sprintf("Issues · %s · %d", m.issueState, n)
 	case tabActions:
 		t = fmt.Sprintf("Запуски Actions · %d", n)
+	case tabInbox:
+		t = m.inboxTitle(n)
 	case tabEvents:
 		t = fmt.Sprintf("Лента событий · %d", n)
 		if !m.daemonUp {
@@ -326,6 +343,10 @@ func (m *Model) visible(t tab) []int {
 		}
 	case tabCode:
 		texts = m.code.files
+	case tabInbox:
+		for _, n := range m.inbox {
+			texts = append(texts, n.Repo+" "+n.Title+" "+n.Reason+" "+reasonText[n.Reason])
+		}
 	}
 	f := strings.ToLower(m.filters[t])
 	out := make([]int, 0, len(texts))
@@ -385,6 +406,8 @@ func (m *Model) rowView(i int, sel bool) string {
 		}
 		return row(sel, w, c(st, 1), c(ui.Bold.Render(r.Name), 20), flex(r.Title),
 			c(ui.Info.Render(r.Branch), 18), c(ui.Faint.Render(r.Event), 12), c(ui.Faint.Render(ui.Ago(r.UpdatedAt)), 5))
+	case tabInbox:
+		return m.inboxRow(m.inbox[i], sel)
 	case tabEvents:
 		e := m.events[i]
 		actor := ""

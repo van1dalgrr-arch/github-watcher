@@ -37,10 +37,11 @@ const (
 	tabEvents
 	tabLogs
 	tabCode
+	tabInbox
 	tabCount
 )
 
-var tabNames = [tabCount]string{"Dashboard", "Repos", "Pull requests", "Issues", "Actions", "Events", "Logs", "Code"}
+var tabNames = [tabCount]string{"Dashboard", "Repos", "Pull requests", "Issues", "Actions", "Events", "Logs", "Code", "Inbox"}
 
 type Model struct {
 	parent context.Context
@@ -69,6 +70,9 @@ type Model struct {
 	runs       []domain.WorkflowRun
 	runsKey    string
 	dashRuns   []domain.WorkflowRun
+	inbox      []domain.Notification // уведомления GitHub (вкладка Inbox, счётчик в шапке)
+	inboxAll   bool                  // показывать и прочитанные
+	inboxReady bool
 
 	feedAt       time.Time // когда последний раз брали ленту напрямую из GitHub
 	daemonUp     bool
@@ -164,7 +168,7 @@ func steadyCursor(in *textinput.Model) {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.loadMe(), m.loadRepos(), m.loadDaemon(), m.spin.Tick, tick())
+	return tea.Batch(m.loadMe(), m.loadRepos(), m.loadDaemon(), m.loadInbox(), m.spin.Tick, tick())
 }
 
 // ensure загружает данные вкладки, если для текущего репозитория их ещё нет.
@@ -208,6 +212,8 @@ func (m *Model) reload(t tab) tea.Cmd {
 		return m.loadRuns()
 	case tabCode:
 		return m.loadTree()
+	case tabInbox:
+		return m.loadInbox()
 	default:
 		return m.loadDaemon()
 	}
@@ -320,6 +326,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.tab == tabDash {
 				cmds = append(cmds, m.loadDashRuns())
 			}
+			if m.tab != tabInbox { // счётчик непрочитанных в шапке — свежий на любой вкладке
+				cmds = append(cmds, m.loadInbox())
+			}
 		}
 		return m, tea.Batch(cmds...)
 
@@ -390,6 +399,10 @@ func (m *Model) handleLoaded(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case dashRunsMsg:
 		m.dashRuns = msg.runs
+	case inboxMsg:
+		if msg.all == m.inboxAll {
+			m.inbox, m.inboxReady = msg.items, true
+		}
 	case prsMsg:
 		if msg.key == m.prsKey {
 			m.prs = msg.prs
@@ -564,7 +577,7 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.switchTab((m.tab + 1) % tabCount)
 	case "shift+tab", "h", "left":
 		return m.switchTab((m.tab + tabCount - 1) % tabCount)
-	case "1", "2", "3", "4", "5", "6", "7", "8":
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		n, _ := strconv.Atoi(k)
 		return m.switchTab(tab(n - 1))
 	case "r":
@@ -842,6 +855,13 @@ func (m *Model) tabKey(k string) tea.Cmd {
 		case "o":
 			return openURL(codeURL(m.repo, p))
 		}
+
+	case tabInbox:
+		i := 0
+		if has {
+			i = vis[cur]
+		}
+		return m.inboxKey(k, i, has)
 
 	case tabEvents:
 		if !has {

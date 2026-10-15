@@ -158,3 +158,16 @@ type Workflow struct {
 	Path  string
 	State string // active, disabled_manually…
 }
+
+// Notification — уведомление GitHub (колокольчик на сайте): запрос ревью, упоминание, назначение…
+type Notification struct {
+	ID        string
+	Repo      string
+	Type      string // PullRequest, Issue, Release, CheckSuite, Discussion, Commit
+	Title     string
+	Reason    string // review_requested, mention, assign, author, comment, ci_activity, state_change, subscribed…
+	Unread    bool
+	Number    int    // номер PR / issue, если уведомление про них
+	URL       string // страница на github.com
+	UpdatedAt time.Time
+}

@@ -181,7 +181,7 @@ func (m *Model) hints() []string {
 		if m.daemon2.running() {
 			d = "стоп демона"
 		}
-		h = []string{keyHint("enter", "git"), keyHint("d", d)}
+		h = []string{keyHint("enter", "git"), keyHint("d", d), keyHint("P", "профиль")}
 	case tabRepos:
 		h = []string{keyHint("enter", "страница"), keyHint("p", "его PR"), keyHint("o", "браузер")}
 	case tabPRs:
@@ -236,6 +236,7 @@ func (m *Model) helpView() string {
 			[2]string{"q", "выход"}),
 		sec("Dashboard",
 			[2]string{"enter / i", "терминал git"}, [2]string{"d", "запустить / остановить демона"},
+			[2]string{"P", "профиль: сетка вкладов, звёзды"},
 			[2]string{"esc", "из терминала к вкладкам"}),
 		sec("PR и issues",
 			[2]string{"enter", "подробности"}, [2]string{"m", "смёржить PR"}, [2]string{"c", "комментарий"},

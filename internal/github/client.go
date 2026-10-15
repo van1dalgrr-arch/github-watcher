@@ -21,8 +21,9 @@ import (
 var ErrNoToken = errors.New("нет токена GitHub: задай GITHUB_TOKEN или выполни `gh auth login`")
 
 type client struct {
-	gh   *gh.Client
-	http *http.Client // для скачивания логов по redirect-ссылке
+	gh    *gh.Client
+	http  *http.Client // для скачивания логов по redirect-ссылке
+	token string       // для GraphQL: сетка вкладов есть только там
 
 	mu      sync.Mutex
 	pushes  map[string]pushStats // кэш статистики пушей: before..head не меняется
@@ -40,7 +41,7 @@ func New(token string) (Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &client{gh: c, http: &http.Client{Timeout: 60 * time.Second}}, nil
+	return &client{gh: c, http: &http.Client{Timeout: 60 * time.Second}, token: token}, nil
 }
 
 func split(repo string) (owner, name string, err error) {

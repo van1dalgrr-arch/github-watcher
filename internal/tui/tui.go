@@ -718,6 +718,11 @@ func (m *Model) tabKey(k string) tea.Cmd {
 			return m.focusGit()
 		case "d":
 			return m.toggleDaemon()
+		case "P":
+			if m.me == "" {
+				return nil
+			}
+			return m.openProfilePage(m.me)
 		}
 
 	case tabRepos:

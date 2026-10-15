@@ -736,3 +736,55 @@ func TestInbox(t *testing.T) {
 		t.Fatalf("d — убрать: %v, осталось %d", gh.done, len(m.inbox))
 	}
 }
+
+func (f *fakeGH) Profile(_ context.Context, login string) (domain.Profile, error) {
+	var weeks [][]domain.Day
+	start := time.Date(2025, 10, 19, 0, 0, 0, 0, time.UTC) // воскресенье
+	for w := range 53 {
+		var week []domain.Day
+		for d := range 7 {
+			lvl := (w + d) % 5
+			week = append(week, domain.Day{Date: start.AddDate(0, 0, w*7+d), Count: lvl * 2, Level: lvl})
+		}
+		weeks = append(weeks, week)
+	}
+	return domain.Profile{
+		Login: login, Name: "Octo Cat", Bio: "Пишу на Go", Location: "Москва", Followers: 21, Following: 3, PublicRepos: 2,
+		Contributions: 1234, Weeks: weeks, CreatedAt: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		Pinned:  []domain.Repo{{Owner: login, Name: "api", Stars: 12, Language: "Go", Description: "Backend"}},
+		Repos:   []domain.Repo{{Owner: login, Name: "api", Stars: 12}, {Owner: login, Name: "web"}},
+		Starred: []domain.Repo{{Owner: "golang", Name: "go", Stars: 120000}},
+	}, nil
+}
+
+// профиль: сетка вкладов с месяцами, закреплённые; репозиторий из списка — его страница
+func TestProfilePage(t *testing.T) {
+	m, _ := newTestModel(t, 140, 40)
+	press(m, "P")
+	s := screen(t, m, "profile")
+	for _, want := range []string{"Octo Cat", "21 подписчик", "Москва", "на GitHub с 2020", "Пишу на Go", "1234 вклада за год", "меньше", "больше", "окт", "пн", "Закреплённые", "octocat/api"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("в профиле нет %q:\n%s", want, s)
+		}
+	}
+	if !strings.Contains(m.render(), "#39d353") && !strings.Contains(m.render(), "\x1b[38;2;57;211;83m") {
+		t.Error("в сетке нет самых зелёных клеток")
+	}
+	press(m, "3", "enter")
+	if p := m.topPage(); p == nil || !strings.Contains(p.title, "golang/go") {
+		t.Fatal("enter на звезде — страница репозитория")
+	}
+}
+
+func TestContribGraphNarrow(t *testing.T) {
+	_, _ = newTestModel(t, 60, 30)
+	gh := &fakeGH{}
+	pr, _ := gh.Profile(context.Background(), "x")
+	for _, w := range []int{40, 60, 200} {
+		for _, l := range contribGraph(pr.Weeks, w) {
+			if lw := lipgloss.Width(l); lw > w {
+				t.Fatalf("ширина %d: строка %d > %d", w, lw, w)
+			}
+		}
+	}
+}

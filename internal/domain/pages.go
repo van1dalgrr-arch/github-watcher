@@ -171,3 +171,25 @@ type Notification struct {
 	URL       string // страница на github.com
 	UpdatedAt time.Time
 }
+
+// Day — день сетки вкладов: сколько коммитов, PR, issues, ревью.
+type Day struct {
+	Date  time.Time
+	Count int
+	Level int // 0…4 — насколько зелёная клетка, как на сайте
+}
+
+// Profile — страница пользователя: о себе, сетка вкладов за год, закреплённые репозитории.
+type Profile struct {
+	Login, Name, Bio     string
+	Company, Location    string
+	Website              string
+	Followers, Following int
+	PublicRepos          int
+	Contributions        int     // за последний год
+	Weeks                [][]Day // недели слева направо, в неделе — с воскресенья
+	Pinned               []Repo
+	Repos                []Repo // публичные, по свежести пуша
+	Starred              []Repo
+	CreatedAt            time.Time
+}

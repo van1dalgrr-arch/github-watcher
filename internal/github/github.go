@@ -51,6 +51,9 @@ type Client interface {
 	MarkDone(ctx context.Context, id string) error
 	MarkAllRead(ctx context.Context) error
 
+	// профиль: о себе, сетка вкладов за год, закреплённые, репозитории, звёзды
+	Profile(ctx context.Context, login string) (domain.Profile, error)
+
 	// для watcher-а: всё новое с момента since (Events + Notifications + Actions)
 	EventsSince(ctx context.Context, since time.Time) ([]domain.Event, error)
 

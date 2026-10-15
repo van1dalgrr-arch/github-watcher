@@ -7,12 +7,24 @@
 >
 > **Telegram-бот с командами** ([`bot/`](bot)) — его пишет автор (вместе с Claude) на telebot v4; пока папка пустая.
 
-Дашборд, репозитории, pull requests, issues, GitHub Actions с логами и живая лента событий — в одном TUI.
-Фоновый демон следит за GitHub и шлёт важное на телефон через Telegram.
+GitHub в терминале, как на сайте: страницы репозиториев, PR с обсуждением и diff, ревью, создание PR,
+Actions по job-ам и шагам, уведомления, профиль с сеткой вкладов, поиск, релизы. На дашборде — терминал git
+и демон. Фоновый демон следит за GitHub и шлёт важное на телефон через Telegram.
+
+## Возможности
+
+| | |
+|---|---|
+| **Dashboard** | профиль, CI, лента; снизу терминал git (сам в клоне репозитория) и `gw daemon` по `d` |
+| **Страницы** | репозиторий (README, коммиты, ветки, релизы), PR (обсуждение, коммиты, diff с подсветкой, проверки), issue, коммит, запуск Actions, релиз, профиль |
+| **Действия** | approve / request changes / комментарий / merge / checkout PR; новый PR из ветки через `$EDITOR`; issue, релиз; перезапуск, отмена и ручной запуск Actions; артефакты |
+| **Inbox** | уведомления GitHub, `✉ N` в шапке |
+| **Поиск** | по всему GitHub: репозитории, issues и PR, люди, код |
+| **Телефон** | уведомления в Telegram — через `gw daemon` или GitHub Actions без своего сервера |
 
 ```
- ◆ gw  me/api                                                            @me  ● daemon
- 1 Dashboard   2 Repos   3 Pull requests 2   4 Issues 1   5 Actions 1   6 Events   7 Logs   8 Code
+ ◆ gw  me/api                                                       @me  ✉ 2  ● daemon
+ 1 Dashboard   2 Repos   3 Pull requests 2   4 Issues 1   5 Actions 1   6 Events   7 Logs   8 Code   9 Inbox 2
 
  Pull requests · open · 2
 ▌ ◆ #7    ✓ Добавить кэш                          feat/cache → main     @alice    1ч
@@ -75,6 +87,8 @@ gw events -n 50
 | `e` `E` | в логах — к следующей / предыдущей ошибке |
 | `o` | открыть в браузере |
 | `r` `?` `q` | обновить, помощь, выход |
+
+Все клавиши — `?` в TUI.
 
 ## Уведомления без своего сервера
 

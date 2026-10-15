@@ -146,8 +146,12 @@ func TestScreens(t *testing.T) {
 		m, _ := newTestModel(t, size[0], size[1])
 		name := func(s string) string { return fmt.Sprintf("%s %dx%d", s, size[0], size[1]) }
 
-		if s := screen(t, m, name("dashboard")); !strings.Contains(s, "@octocat") || !strings.Contains(s, "CI упал") {
-			t.Errorf("dashboard без профиля или ленты:\n%s", s)
+		s := screen(t, m, name("dashboard"))
+		if !strings.Contains(s, "@octocat") || !strings.Contains(s, "демон") || !strings.Contains(s, "git") {
+			t.Errorf("dashboard без профиля или терминалов:\n%s", s)
+		}
+		if size[0] >= 130 && !strings.Contains(s, "CI упал") { // лента — в широком окне
+			t.Errorf("dashboard без ленты:\n%s", s)
 		}
 		press(m, "2")
 		if s := screen(t, m, name("repos")); !strings.Contains(s, "◉ web") {
@@ -345,5 +349,70 @@ func TestCodeTab(t *testing.T) {
 	press(m, "enter")
 	if m.viewer == nil || !strings.Contains(screen(t, m, "файл"), "# readme") {
 		t.Fatal("enter должен открыть файл целиком")
+	}
+}
+
+// Dashboard: enter — терминал git в папке репозитория, d — демон прямо в TUI
+func TestDashTerminals(t *testing.T) {
+	m, _ := newTestModel(t, 140, 44)
+	m.Update(daemonMsg{}) // демона нет
+	m.gitTerm.dir = t.TempDir()
+
+	press(m, "enter")
+	if !m.gitTerm.focused {
+		t.Fatal("enter на Dashboard должен открыть терминал git")
+	}
+	for _, r := range "git init -q . && git status --short && echo done" {
+		press(m, string(r))
+	}
+	press(m, "enter")
+	if out := strings.Join(m.gitTerm.lines, "\n"); !strings.Contains(out, "done") || !strings.Contains(out, "✓") {
+		t.Fatalf("вывод git-терминала:\n%s", out)
+	}
+	if s := screen(t, m, "dash git"); !strings.Contains(s, "done") {
+		t.Errorf("вывод не виден в панели:\n%s", s)
+	}
+	press(m, "q") // в терминале q — просто буква, gw не закрывается
+	if !m.gitTerm.focused || m.gitTerm.in.Value() != "q" {
+		t.Fatalf("q в терминале: focused=%v value=%q", m.gitTerm.focused, m.gitTerm.in.Value())
+	}
+	press(m, "esc")
+	if m.gitTerm.focused {
+		t.Fatal("esc должен вернуть к вкладкам")
+	}
+
+	m.daemonCmd = "echo 'level=INFO msg=демон-слушает'; echo 'level=ERROR msg=boom'"
+	press(m, "d")
+	if out := strings.Join(m.daemon2.lines, "\n"); !strings.Contains(out, "демон-слушает") {
+		t.Fatalf("вывод демона:\n%s", out)
+	}
+	s := screen(t, m, "dash daemon")
+	if !strings.Contains(s, "прошлый запуск") || !strings.Contains(s, "boom") {
+		t.Errorf("панель демона после выхода:\n%s", s)
+	}
+}
+
+// пока свой демон работает, q спрашивает подтверждение — он остановится вместе с gw
+func TestQuitWithDaemon(t *testing.T) {
+	m, _ := newTestModel(t, 140, 44)
+	m.Update(daemonMsg{})
+	m.daemonCmd = "sleep 30"
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	if !m.daemon2.running() {
+		t.Fatal("демон не запустился")
+	}
+	_ = cmd // вывод не ждём: sleep молчит
+	press(m, "q")
+	if m.confirm == nil {
+		t.Fatal("выход без подтверждения при работающем демоне")
+	}
+	press(m, "n")
+	m.stopDaemon()
+	deadline := time.Now().Add(3 * time.Second)
+	for m.daemon2.running() && time.Now().Before(deadline) {
+		run(m, m.daemon2.wait())
+	}
+	if m.daemon2.running() {
+		t.Fatal("демон не остановился по SIGINT")
 	}
 }

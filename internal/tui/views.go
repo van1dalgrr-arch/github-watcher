@@ -144,9 +144,13 @@ func (m *Model) footerView() string {
 }
 
 func (m *Model) hints() []string {
-	if m.term.focused {
+	if t := m.focusedTerm(); t != nil {
+		esc := keyHint("esc", "скрыть")
+		if t.id != termBottom {
+			esc = keyHint("esc", "к вкладкам")
+		}
 		return []string{keyHint("enter", "выполнить"), keyHint("↑↓", "история"), keyHint("ctrl+c", "стоп"),
-			keyHint("pgup/pgdn", "листать"), keyHint("esc", "скрыть")}
+			keyHint("pgup/pgdn", "листать"), esc}
 	}
 	if m.viewer != nil {
 		h := []string{keyHint("↑↓", "листать"), keyHint("o", "браузер"), keyHint("esc", "назад")}
@@ -157,6 +161,12 @@ func (m *Model) hints() []string {
 	}
 	var h []string
 	switch m.tab {
+	case tabDash:
+		d := "демон"
+		if m.daemon2.running() {
+			d = "стоп демона"
+		}
+		h = []string{keyHint("enter", "git"), keyHint("d", d)}
 	case tabRepos:
 		h = []string{keyHint("enter", "выбрать"), keyHint("o", "браузер")}
 	case tabPRs:
@@ -199,6 +209,9 @@ func (m *Model) helpView() string {
 			[2]string{"/", "фильтр"}, [2]string{"r", "обновить"}, [2]string{"o", "открыть в браузере"},
 			[2]string{":", "терминал"},
 			[2]string{"q", "выход"}),
+		sec("Dashboard",
+			[2]string{"enter / i", "терминал git"}, [2]string{"d", "запустить / остановить демона"},
+			[2]string{"esc", "из терминала к вкладкам"}),
 		sec("PR и issues",
 			[2]string{"enter", "подробности"}, [2]string{"m", "смёржить PR"}, [2]string{"c", "комментарий"},
 			[2]string{"n", "новый issue"}, [2]string{"x", "закрыть issue"}, [2]string{"s", "open / closed / all"}),
@@ -387,35 +400,6 @@ func (m *Model) daemonHint() string {
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
-
-func (m *Model) dashView() string {
-	h := m.mainHeight()
-	// большой логотип, как у berth, — когда терминал позволяет и панелям остаётся место
-	if m.w >= bannerWidth+2 && h-bannerHeight-1 >= 24 {
-		return banner() + "\n\n" + m.dashPanels(h-bannerHeight-1)
-	}
-	return m.dashPanels(h)
-}
-
-func (m *Model) dashPanels(h int) string {
-	if m.w >= 100 {
-		leftW := m.w * 2 / 5
-		rightW := m.w - leftW
-		topH := min(h/2, 13)
-		left := lipgloss.JoinVertical(lipgloss.Left,
-			m.profilePanel(leftW, topH), m.pushPanel(leftW, h-topH))
-		right := lipgloss.JoinVertical(lipgloss.Left,
-			m.ciPanel(rightW, topH), m.feedPanel(rightW, h-topH))
-		return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
-	}
-	// узкий терминал — всё в колонку, лента забирает остаток
-	p := m.profilePanel(m.w, 8)
-	ci := m.ciPanel(m.w, 8)
-	if h-16 >= 22 { // панель пуша — только если ленте остаётся хотя бы 12 строк
-		return lipgloss.JoinVertical(lipgloss.Left, p, ci, m.pushPanel(m.w, 10), m.feedPanel(m.w, h-26))
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, p, ci, m.feedPanel(m.w, max(h-16, 5)))
-}
 
 func (m *Model) profilePanel(w, h int) string {
 	if m.repos == nil {

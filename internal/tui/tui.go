@@ -87,8 +87,11 @@ type Model struct {
 	confirm   *confirm
 	viewer    *viewer
 	help      bool
-	term      term // панель-терминал внизу (`:`)
-	code      code // вкладка Code
+	term      term   // панель-терминал внизу (`:`)
+	gitTerm   term   // Dashboard: команды для git в папке репозитория
+	daemon2   term   // Dashboard: gw daemon, запущенный из TUI
+	daemonCmd string // чем запускать демона; пусто — этот же gw с аргументом daemon (тесты подставляют своё)
+	code      code   // вкладка Code
 }
 
 type prompt struct {
@@ -113,6 +116,7 @@ func Run(ctx context.Context, gh github.Client, cfg config.Config, repo string) 
 	// TUI живёт часами: чаще собираем мусор — меньше памяти держим про запас (данных тут немного)
 	debug.SetGCPercent(50)
 	m := newModel(ctx, gh, daemonclient.New(cfg.DaemonURL), cfg, repo)
+	defer m.stopDaemon() // демон, запущенный из TUI, живёт, пока открыт gw
 	_, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()
 	if err != nil && ctx.Err() != nil {
 		return nil // Ctrl+C из терминала — нормальный выход
@@ -132,7 +136,9 @@ func newModel(ctx context.Context, gh github.Client, d *daemonclient.Client, cfg
 		spin:       spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(ui.Warn)),
 		logsVP:     viewport.New(),
 		filterIn:   newInput("фильтр…"),
-		term:       newTerm(),
+		term:       newTerm(termBottom, "команда — например git status, go test ./..."),
+		gitTerm:    newGitTerm(repo),
+		daemon2:    newDaemonTerm(),
 	}
 }
 
@@ -227,9 +233,30 @@ func (m *Model) layout() {
 		m.viewer.vp.SetWidth(m.w)
 		m.viewer.vp.SetHeight(m.mainHeight() - 1)
 	}
-	m.term.vp.SetWidth(m.w - 4)
-	m.term.vp.SetHeight(max(m.termHeight()-4, 1))
+	m.term.resize(m.w-4, m.termHeight()-4)
 	m.term.in.SetWidth(max(m.w-lipgloss.Width(m.term.prompt())-6, 10))
+	m.layoutDash()
+}
+
+// termByID — терминал, приславший вывод.
+func (m *Model) termByID(id termID) *term {
+	switch id {
+	case termGit:
+		return &m.gitTerm
+	case termDaemon:
+		return &m.daemon2
+	}
+	return &m.term
+}
+
+// focusedTerm — терминал, который сейчас принимает клавиатуру; nil — никакой.
+func (m *Model) focusedTerm() *term {
+	for _, t := range []*term{&m.term, &m.gitTerm} {
+		if t.focused {
+			return t
+		}
+	}
+	return nil
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -240,11 +267,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case termOutMsg:
-		m.term.feed(msg.data)
-		return m, m.term.wait()
+		t := m.termByID(msg.id)
+		t.feed(msg.data)
+		return m, t.wait()
 
 	case termDoneMsg:
-		m.term.done(msg)
+		m.termByID(msg.id).done(msg)
+		if msg.id == termDaemon {
+			return m, m.loadDaemon() // демон остановился — шапка и панели узнают сразу
+		}
 		return m, nil
 
 	case previewMsg:
@@ -393,13 +424,15 @@ func (m *Model) wheel(msg tea.MouseWheelMsg) tea.Cmd {
 	default:
 		return nil
 	}
-	switch {
-	case m.term.focused:
+	if t := m.focusedTerm(); t != nil {
 		if d < 0 {
-			m.term.vp.ScrollUp(-d)
+			t.vp.ScrollUp(-d)
 		} else {
-			m.term.vp.ScrollDown(d)
+			t.vp.ScrollDown(d)
 		}
+		return nil
+	}
+	switch {
 	case m.viewer != nil:
 		if d < 0 {
 			m.viewer.vp.ScrollUp(-d)
@@ -423,11 +456,11 @@ func (m *Model) wheel(msg tea.MouseWheelMsg) tea.Cmd {
 
 func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	k := msg.String()
-	if m.term.focused && m.confirm == nil && m.prompt == nil {
-		return m.termKey(msg)
+	if t := m.focusedTerm(); t != nil && m.confirm == nil && m.prompt == nil {
+		return m.termKey(t, msg)
 	}
 	if k == "ctrl+c" {
-		return tea.Quit
+		return m.quit()
 	}
 
 	// модальные режимы перехватывают клавиатуру целиком
@@ -478,7 +511,7 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	// глобальные клавиши
 	switch k {
 	case "q":
-		return tea.Quit
+		return m.quit()
 	case ":":
 		m.term.open, m.term.focused = true, true
 		m.layout()
@@ -535,11 +568,13 @@ func (m *Model) switchTab(t tab) tea.Cmd {
 func (m *Model) listHeight() int { return m.mainHeight() - 1 } // строка заголовка над списком
 
 // termKey — клавиши, когда в фокусе терминал. Ctrl+C здесь останавливает команду, а не gw.
-func (m *Model) termKey(msg tea.KeyPressMsg) tea.Cmd {
-	t := &m.term
+func (m *Model) termKey(t *term, msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "esc":
-		t.open, t.focused = false, false // команда, если идёт, продолжает работать
+		if t.id == termBottom {
+			t.open = false // панель внизу скрывается; терминалы Dashboard остаются на месте
+		}
+		t.focused = false // команда, если идёт, продолжает работать
 		t.in.Blur()
 		m.layout()
 		return nil
@@ -561,8 +596,8 @@ func (m *Model) termKey(msg tea.KeyPressMsg) tea.Cmd {
 			t.send(line)
 			return nil
 		}
-		cmd := t.run(line, m.w-4, max(m.termHeight()-4, 5))
-		if !t.open {
+		cmd := t.run(line)
+		if !t.open && t.id == termBottom {
 			m.layout() // exit закрыл панель
 		}
 		return cmd
@@ -597,6 +632,7 @@ func (m *Model) termKey(msg tea.KeyPressMsg) tea.Cmd {
 // selectRepo делает репозиторий текущим и переходит к его PR.
 func (m *Model) selectRepo(repo string) tea.Cmd {
 	m.repo = repo
+	m.gitTerm.follow(repo)
 	m.prs, m.issues, m.runs = nil, nil, nil
 	m.prsKey, m.issuesKey, m.runsKey = "", "", ""
 	for _, t := range []tab{tabPRs, tabIssues, tabActions} {
@@ -614,6 +650,14 @@ func (m *Model) tabKey(k string) tea.Cmd {
 	has := cur < len(vis)
 
 	switch m.tab {
+	case tabDash:
+		switch k {
+		case "enter", "i":
+			return m.focusGit()
+		case "d":
+			return m.toggleDaemon()
+		}
+
 	case tabRepos:
 		if !has {
 			return nil

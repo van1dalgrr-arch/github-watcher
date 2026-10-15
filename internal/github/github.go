@@ -53,6 +53,7 @@ type Client interface {
 
 	// профиль: о себе, сетка вкладов за год, закреплённые, репозитории, звёзды
 	Profile(ctx context.Context, login string) (domain.Profile, error)
+	Search(ctx context.Context, query string) (domain.SearchResult, error) // по всему GitHub: репозитории, issues и PR, люди, код
 
 	// для watcher-а: всё новое с момента since (Events + Notifications + Actions)
 	EventsSince(ctx context.Context, since time.Time) ([]domain.Event, error)

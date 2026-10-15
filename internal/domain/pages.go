@@ -193,3 +193,32 @@ type Profile struct {
 	Starred              []Repo
 	CreatedAt            time.Time
 }
+
+// Found — найденный issue или PR.
+type Found struct {
+	Repo      string
+	Number    int
+	Title     string
+	State     string
+	PR        bool
+	Author    string
+	Comments  int
+	URL       string
+	UpdatedAt time.Time
+}
+
+// CodeHit — файл, где нашёлся текст, и строка вокруг находки.
+type CodeHit struct {
+	Repo, Path, URL string
+	Fragment        string
+}
+
+// SearchResult — поиск по всему GitHub, как строка поиска на сайте.
+type SearchResult struct {
+	Query  string
+	Repos  []Repo
+	Issues []Found
+	Users  []string
+	Code   []CodeHit
+	Totals [4]int // сколько всего нашлось: репозитории, issues и PR, люди, код
+}

@@ -788,3 +788,50 @@ func TestContribGraphNarrow(t *testing.T) {
 		}
 	}
 }
+
+func (f *fakeGH) Search(_ context.Context, q string) (domain.SearchResult, error) {
+	if q == "octo" { // нашлись только люди
+		return domain.SearchResult{Query: q, Users: []string{"octocat"}, Totals: [4]int{0, 0, 1, 0}}, nil
+	}
+	return domain.SearchResult{
+		Query:  q,
+		Repos:  []domain.Repo{{Owner: "golang", Name: "go", Stars: 120000, Description: "The Go programming language"}},
+		Issues: []domain.Found{{Repo: "golang/go", Number: 42, Title: "cache is slow", State: "open", PR: true, Author: "rsc", UpdatedAt: now}},
+		Code:   []domain.CodeHit{{Repo: "octocat/api", Path: "main.go", Fragment: "func main() {"}},
+		Totals: [4]int{1500, 1, 0, 1},
+	}, nil
+}
+
+// поиск: S → запрос → разделы с числом находок; enter — страница PR / профиль / файл
+func TestSearch(t *testing.T) {
+	m, _ := newTestModel(t, 140, 40)
+	press(m, "S")
+	for _, r := range "cache" {
+		press(m, string(r))
+	}
+	press(m, "enter")
+	s := screen(t, m, "search")
+	if !strings.Contains(s, "golang/go") || !strings.Contains(s, "1 из 1500") {
+		t.Errorf("результаты поиска:\n%s", s)
+	}
+	press(m, "2", "enter")
+	if p := m.topPage(); p == nil || !strings.Contains(p.title, "#42") {
+		t.Fatal("enter на найденном PR — его страница")
+	}
+	press(m, "esc", "4", "enter")
+	if m.viewer == nil || !strings.Contains(screen(t, m, "code hit"), "package main") {
+		t.Fatal("enter на находке в коде — файл с подсветкой")
+	}
+	press(m, "esc", "esc", "S")
+	for _, r := range "octo" {
+		press(m, string(r))
+	}
+	press(m, "enter")
+	if p := m.topPage(); p == nil || p.cur != 2 {
+		t.Fatalf("нашлись только люди — сразу раздел «Люди», а не %d", p.cur)
+	}
+	press(m, "enter")
+	if p := m.topPage(); p == nil || !strings.Contains(p.title, "Octo Cat") {
+		t.Fatal("enter на человеке — его профиль")
+	}
+}

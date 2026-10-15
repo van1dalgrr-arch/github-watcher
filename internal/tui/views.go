@@ -201,7 +201,7 @@ func (m *Model) hints() []string {
 		}
 		h = []string{keyHint("enter", "открыть"), keyHint("m", "прочитано"), keyHint("d", "убрать"), keyHint("M", "всё прочитано"), keyHint("s", what)}
 	}
-	return append(h, keyHint(":", "терминал"), keyHint("?", "помощь"), keyHint("q", "выход"))
+	return append(h, keyHint("S", "поиск"), keyHint(":", "терминал"), keyHint("?", "помощь"), keyHint("q", "выход"))
 }
 
 func (m *Model) modalView() string {
@@ -231,7 +231,7 @@ func (m *Model) helpView() string {
 		sec("Везде",
 			[2]string{"1…9", "вкладки"}, [2]string{"tab / h l", "соседняя вкладка"},
 			[2]string{"↑↓ / j k", "по списку"}, [2]string{"g / G", "в начало / конец"},
-			[2]string{"/", "фильтр"}, [2]string{"r", "обновить"}, [2]string{"o", "открыть в браузере"},
+			[2]string{"/", "фильтр"}, [2]string{"S", "поиск по GitHub"}, [2]string{"r", "обновить"}, [2]string{"o", "открыть в браузере"},
 			[2]string{":", "терминал"},
 			[2]string{"q", "выход"}),
 		sec("Dashboard",

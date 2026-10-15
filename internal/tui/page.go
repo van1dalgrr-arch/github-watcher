@@ -122,7 +122,10 @@ func (m *Model) rebuild(p *page) {
 	cur := p.cur
 	p.header, p.sections = nil, nil
 	p.build(p, m.w)
-	p.cur = min(cur, max(len(p.sections)-1, 0))
+	if len(saved) > 0 { // перестройка — остаёмся в том же разделе; первая — раздел выбирает build
+		p.cur = cur
+	}
+	p.cur = min(p.cur, max(len(p.sections)-1, 0))
 	h := m.pageBodyH(p)
 	for i, s := range p.sections {
 		s.vp = viewport.New(viewport.WithWidth(m.w), viewport.WithHeight(h))
@@ -189,6 +192,8 @@ func (m *Model) pageKey(p *page, msg tea.KeyPressMsg) tea.Cmd {
 	case "r":
 		m.setFlash("обновляю…", false)
 		return m.fetchPage(p)
+	case "S":
+		return m.askSearch()
 	case "o":
 		if s := m.curSection(p); s != nil && s.items != nil && len(s.items) > 0 && s.items[s.list.cursor].url != "" {
 			return openURL(s.items[s.list.cursor].url)

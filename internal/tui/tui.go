@@ -419,6 +419,9 @@ func (m *Model) handleLoaded(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.openLogs(msg.run, msg.text)
 	case pageMsg:
 		m.fillPage(msg)
+	case remoteFileMsg:
+		m.flash = ""
+		m.viewer = m.newViewer(msg.title, msg.url, numbered(msg.lines, 0))
 	case prCreatedMsg:
 		m.setFlash(fmt.Sprintf("✓ PR #%d создан", msg.pr.Number), false)
 		m.prsKey = "" // список PR перечитается при возврате
@@ -573,6 +576,8 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	case "?":
 		m.help = true
 		return nil
+	case "S":
+		return m.askSearch()
 	case "tab", "l", "right":
 		return m.switchTab((m.tab + 1) % tabCount)
 	case "shift+tab", "h", "left":

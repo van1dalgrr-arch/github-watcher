@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -20,14 +21,21 @@ import (
 	"github.com/van1dalgrr-arch/github-watcher/internal/ui"
 )
 
-// term — панель-терминал внизу TUI (открывается по `:`). Команды идут через настоящий PTY,
-// поэтому git, go test и прочие сами раскрашивают вывод, как в обычном терминале.
-// Интерактивные полноэкранные программы (vim, htop) здесь не работают — для них есть обычный терминал.
+// term — терминал внутри TUI. Их три: панель внизу (`:`) и два на Dashboard — git и демон.
+// Команды идут через настоящий PTY, поэтому git, go test и прочие сами раскрашивают вывод,
+// как в обычном терминале. Интерактивные полноэкранные программы (vim, htop) здесь не работают —
+// для них есть обычный терминал.
 type term struct {
+	id            termID
 	open, focused bool
 	dir           string
 	in            textinput.Model
 	vp            viewport.Model
+	cols, rows    int                              // размер PTY — по размеру панели (layout)
+	then          func(m *Model, code int) tea.Cmd // что сделать, когда команда закончится
+	repo          string                           // git-терминал: чей клон ищем
+	clone, moved  bool                             // git-терминал: папка — клон repo; ушли из неё через cd
+	format        func([]string) []string          // как показывать вывод; nil — как есть
 
 	lines   []string // готовые строки вывода (уже без лишних escape-последовательностей)
 	partial string   // текущая, ещё не законченная строка
@@ -45,22 +53,50 @@ type term struct {
 // maxTermLines — сколько строк вывода держим в памяти: длинные логи не раздувают процесс.
 const maxTermLines = 2000
 
+// termID — какой из терминалов прислал вывод.
+type termID int
+
+const (
+	termBottom termID = iota // панель внизу по `:`
+	termGit                  // Dashboard: команды для git
+	termDaemon               // Dashboard: gw daemon
+)
+
 type (
-	termOutMsg  struct{ data []byte }
+	termOutMsg struct {
+		id   termID
+		data []byte
+	}
 	termDoneMsg struct {
+		id   termID
 		code int
 		dur  time.Duration
 	}
 )
 
-func newTerm() term {
+func newTerm(id termID, placeholder string) term {
 	dir, _ := os.Getwd()
 	in := textinput.New()
 	in.Prompt = ""
-	in.Placeholder = "команда — например git status, go test ./..."
+	in.Placeholder = placeholder
 	in.CharLimit = 4000
 	steadyCursor(&in)
-	return term{dir: dir, in: in, vp: viewport.New()}
+	return term{id: id, dir: dir, in: in, vp: viewport.New(), cols: 80, rows: 20}
+}
+
+// resize — новый размер области вывода; работающей команде сообщаем его через PTY.
+func (t *term) resize(cols, rows int) {
+	cols, rows = max(cols, 20), max(rows, 3)
+	t.vp.SetWidth(cols)
+	t.vp.SetHeight(rows)
+	if cols == t.cols && rows == t.rows {
+		return
+	}
+	t.cols, t.rows = cols, rows
+	if t.ptmx != nil {
+		_ = pty.Setsize(t.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+	}
+	t.refresh()
 }
 
 func (t *term) running() bool { return t.cmd != nil }
@@ -87,6 +123,9 @@ func (t *term) refresh() {
 	if t.partial != "" {
 		content = append(content[:len(content):len(content)], clean(t.partial))
 	}
+	if t.format != nil {
+		content = t.format(content)
+	}
 	t.vp.SetContentLines(content)
 	if follow {
 		t.vp.GotoBottom()
@@ -94,7 +133,7 @@ func (t *term) refresh() {
 }
 
 // run выполняет строку: встроенные cd / clear / exit — сами, остальное — в шелле через PTY.
-func (t *term) run(line string, cols, rows int) tea.Cmd {
+func (t *term) run(line string) tea.Cmd {
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return nil
@@ -120,6 +159,8 @@ func (t *term) run(line string, cols, rows int) tea.Cmd {
 		}
 		if err := t.cd(target); err != nil {
 			t.println(ui.Bad.Render("cd: " + err.Error()))
+		} else {
+			t.moved = true // дальше папку выбираешь ты, а не смена репозитория
 		}
 		t.refresh()
 		return nil
@@ -131,8 +172,8 @@ func (t *term) run(line string, cols, rows int) tea.Cmd {
 	}
 	cmd := exec.Command(shell, "-c", line)
 	cmd.Dir = t.dir
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "CLICOLOR_FORCE=1")
-	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(max(cols, 20)), Rows: uint16(max(rows, 5))})
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "CLICOLOR_FORCE=1", "PAGER=cat", "GIT_PAGER="+gitPager())
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(t.cols), Rows: uint16(t.rows)})
 	if err != nil {
 		t.println(ui.Bad.Render("не запустилось: " + err.Error()))
 		t.refresh()
@@ -157,12 +198,22 @@ func (t *term) run(line string, cols, rows int) tea.Cmd {
 	return t.wait()
 }
 
+// gitPager — без пролистывания: less ждал бы q, а в панели его не нажать. Если git настроен
+// на delta — остаётся delta с её цветами, только без пейджера.
+var gitPager = sync.OnceValue(func() string {
+	out, _ := exec.Command("git", "config", "core.pager").Output()
+	if strings.Contains(string(out), "delta") {
+		return "delta --paging=never"
+	}
+	return "cat"
+})
+
 // wait — следующий кусок вывода или сообщение о завершении команды.
 func (t *term) wait() tea.Cmd {
-	out, cmd, started := t.out, t.cmd, t.started
+	id, out, cmd, started := t.id, t.out, t.cmd, t.started
 	return func() tea.Msg {
 		if data, ok := <-out; ok {
-			return termOutMsg{data}
+			return termOutMsg{id, data}
 		}
 		code := 0
 		var exitErr *exec.ExitError
@@ -171,7 +222,7 @@ func (t *term) wait() tea.Cmd {
 		} else if err != nil {
 			code = -1
 		}
-		return termDoneMsg{code: code, dur: time.Since(started)}
+		return termDoneMsg{id: id, code: code, dur: time.Since(started)}
 	}
 }
 

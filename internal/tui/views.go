@@ -30,6 +30,8 @@ func (m *Model) render() string {
 	switch {
 	case m.help:
 		body = m.helpView()
+	case m.viewer == nil && m.topPage() != nil:
+		body = m.pageView(m.topPage())
 	case m.viewer != nil:
 		body = ui.Bold.Render(fit(m.viewer.title, m.w)) + "\n" + m.viewer.vp.View()
 	default:
@@ -57,6 +59,9 @@ func (m *Model) headerView() string {
 	var right []string
 	if m.me != "" {
 		right = append(right, ui.Faint.Render("@"+m.me))
+	}
+	if n := m.unread(); n > 0 {
+		right = append(right, sKey.Render("✉ "+strconv.Itoa(n)))
 	}
 	if m.daemonUp {
 		d := ui.Good.Render("● daemon")
@@ -97,6 +102,11 @@ func (m *Model) badge(t tab) string {
 		n = len(m.prs)
 	case tabIssues:
 		n = len(m.issues)
+	case tabInbox:
+		if u := m.unread(); u > 0 {
+			return sKey.Render(strconv.Itoa(u))
+		}
+		return ""
 	case tabActions:
 		for _, r := range m.runs {
 			if r.Status != "completed" {
@@ -121,6 +131,8 @@ func (m *Model) footerView() string {
 	switch {
 	case m.filtering:
 		left = sKey.Render("/") + " " + m.filterIn.View()
+	case m.flash != "" && m.flashBad: // ошибка важнее спиннера: иначе её не видно, пока что-то грузится
+		left = ui.Bad.Render(m.flash)
 	case m.loading > 0:
 		left = m.spin.View() + " " + ui.Faint.Render("загрузка…")
 		if m.flash != "" && !m.flashBad {
@@ -144,9 +156,16 @@ func (m *Model) footerView() string {
 }
 
 func (m *Model) hints() []string {
-	if m.term.focused {
+	if t := m.focusedTerm(); t != nil {
+		esc := keyHint("esc", "скрыть")
+		if t.id != termBottom {
+			esc = keyHint("esc", "к вкладкам")
+		}
 		return []string{keyHint("enter", "выполнить"), keyHint("↑↓", "история"), keyHint("ctrl+c", "стоп"),
-			keyHint("pgup/pgdn", "листать"), keyHint("esc", "скрыть")}
+			keyHint("pgup/pgdn", "листать"), esc}
+	}
+	if p := m.topPage(); p != nil && m.viewer == nil {
+		return m.pageHints(p)
 	}
 	if m.viewer != nil {
 		h := []string{keyHint("↑↓", "листать"), keyHint("o", "браузер"), keyHint("esc", "назад")}
@@ -157,27 +176,43 @@ func (m *Model) hints() []string {
 	}
 	var h []string
 	switch m.tab {
+	case tabDash:
+		d := "демон"
+		if m.daemon2.running() {
+			d = "стоп демона"
+		}
+		h = []string{keyHint("enter", "git"), keyHint("d", d), keyHint("P", "профиль")}
 	case tabRepos:
-		h = []string{keyHint("enter", "выбрать"), keyHint("o", "браузер")}
+		h = []string{keyHint("enter", "страница"), keyHint("p", "его PR"), keyHint("o", "браузер")}
 	case tabPRs:
-		h = []string{keyHint("enter", "открыть"), keyHint("m", "merge"), keyHint("c", "коммент"), keyHint("s", m.prState)}
+		h = []string{keyHint("enter", "открыть"), keyHint("n", "новый"), keyHint("m", "merge"), keyHint("c", "коммент"), keyHint("s", m.prState)}
 	case tabIssues:
 		h = []string{keyHint("n", "новый"), keyHint("x", "закрыть"), keyHint("c", "коммент"), keyHint("s", m.issueState)}
 	case tabActions:
-		h = []string{keyHint("enter", "логи"), keyHint("R", "перезапуск"), keyHint("f", "упавшие")}
+		h = []string{keyHint("enter", "запуск"), keyHint("L", "лог"), keyHint("w", "запустить workflow"), keyHint("R", "перезапуск"), keyHint("f", "упавшие")}
 	case tabEvents:
 		h = []string{keyHint("enter", "подробности"), keyHint("o", "браузер"), keyHint("f", "к репо")}
 	case tabCode:
 		h = []string{keyHint("enter", "открыть"), keyHint("/", "найти файл"), keyHint("o", "браузер")}
+	case tabInbox:
+		what := "все"
+		if m.inboxAll {
+			what = "непрочитанные"
+		}
+		h = []string{keyHint("enter", "открыть"), keyHint("m", "прочитано"), keyHint("d", "убрать"), keyHint("M", "всё прочитано"), keyHint("s", what)}
 	}
-	return append(h, keyHint(":", "терминал"), keyHint("?", "помощь"), keyHint("q", "выход"))
+	return append(h, keyHint("S", "поиск"), keyHint(":", "терминал"), keyHint("?", "помощь"), keyHint("q", "выход"))
 }
 
 func (m *Model) modalView() string {
 	w := min(m.w-4, 72)
 	if m.confirm != nil {
 		q := lipgloss.NewStyle().Width(w - 6).Render(m.confirm.question)
-		return sModal.Width(w).Render(q + "\n\n" + keyHint("y", "да") + "   " + keyHint("n", "нет"))
+		keys := keyHint("y", "да")
+		for _, a := range m.confirm.alt {
+			keys += "   " + keyHint(a.key, a.hint)
+		}
+		return sModal.Width(w).Render(q + "\n\n" + keys + "   " + keyHint("n", "нет"))
 	}
 	m.prompt.in.SetWidth(w - 6)
 	return sModal.Width(w).Render(ui.Title.Render(m.prompt.title) + "\n\n" + m.prompt.in.View() +
@@ -194,11 +229,15 @@ func (m *Model) helpView() string {
 	}
 	cols := []string{
 		sec("Везде",
-			[2]string{"1…8", "вкладки"}, [2]string{"tab / h l", "соседняя вкладка"},
+			[2]string{"1…9", "вкладки"}, [2]string{"tab / h l", "соседняя вкладка"},
 			[2]string{"↑↓ / j k", "по списку"}, [2]string{"g / G", "в начало / конец"},
-			[2]string{"/", "фильтр"}, [2]string{"r", "обновить"}, [2]string{"o", "открыть в браузере"},
+			[2]string{"/", "фильтр"}, [2]string{"S", "поиск по GitHub"}, [2]string{"r", "обновить"}, [2]string{"o", "открыть в браузере"},
 			[2]string{":", "терминал"},
 			[2]string{"q", "выход"}),
+		sec("Dashboard",
+			[2]string{"enter / i", "терминал git"}, [2]string{"d", "запустить / остановить демона"},
+			[2]string{"P", "профиль: сетка вкладов, звёзды"},
+			[2]string{"esc", "из терминала к вкладкам"}),
 		sec("PR и issues",
 			[2]string{"enter", "подробности"}, [2]string{"m", "смёржить PR"}, [2]string{"c", "комментарий"},
 			[2]string{"n", "новый issue"}, [2]string{"x", "закрыть issue"}, [2]string{"s", "open / closed / all"}),
@@ -206,7 +245,8 @@ func (m *Model) helpView() string {
 			[2]string{"enter", "логи запуска"}, [2]string{"e / E", "к след./пред. ошибке"},
 			[2]string{"R", "перезапустить"}, [2]string{"f", "только упавшие"},
 			[2]string{"f (Events)", "репо события"},
-			[2]string{"8 → /", "найти файл в коде"}),
+			[2]string{"8 → /", "найти файл в коде"},
+			[2]string{"9", "входящие: enter, d, M"}),
 	}
 	for i := range cols {
 		cols[i] = lipgloss.NewStyle().Width(34).Render(cols[i])
@@ -230,7 +270,7 @@ func (m *Model) tabView() string {
 		}
 		return m.logsVP.View()
 	}
-	if m.repo == "" && m.tab != tabRepos && m.tab != tabEvents {
+	if m.repo == "" && m.tab != tabRepos && m.tab != tabEvents && m.tab != tabInbox {
 		return ui.Faint.Render("  выбери репозиторий на вкладке 2")
 	}
 	if m.tab == tabCode {
@@ -264,6 +304,8 @@ func (m *Model) listTitle(n int) string {
 		t = fmt.Sprintf("Issues · %s · %d", m.issueState, n)
 	case tabActions:
 		t = fmt.Sprintf("Запуски Actions · %d", n)
+	case tabInbox:
+		t = m.inboxTitle(n)
 	case tabEvents:
 		t = fmt.Sprintf("Лента событий · %d", n)
 		if !m.daemonUp {
@@ -302,6 +344,10 @@ func (m *Model) visible(t tab) []int {
 		}
 	case tabCode:
 		texts = m.code.files
+	case tabInbox:
+		for _, n := range m.inbox {
+			texts = append(texts, n.Repo+" "+n.Title+" "+n.Reason+" "+reasonText[n.Reason])
+		}
 	}
 	f := strings.ToLower(m.filters[t])
 	out := make([]int, 0, len(texts))
@@ -361,6 +407,8 @@ func (m *Model) rowView(i int, sel bool) string {
 		}
 		return row(sel, w, c(st, 1), c(ui.Bold.Render(r.Name), 20), flex(r.Title),
 			c(ui.Info.Render(r.Branch), 18), c(ui.Faint.Render(r.Event), 12), c(ui.Faint.Render(ui.Ago(r.UpdatedAt)), 5))
+	case tabInbox:
+		return m.inboxRow(m.inbox[i], sel)
 	case tabEvents:
 		e := m.events[i]
 		actor := ""
@@ -387,35 +435,6 @@ func (m *Model) daemonHint() string {
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
-
-func (m *Model) dashView() string {
-	h := m.mainHeight()
-	// большой логотип, как у berth, — когда терминал позволяет и панелям остаётся место
-	if m.w >= bannerWidth+2 && h-bannerHeight-1 >= 24 {
-		return banner() + "\n\n" + m.dashPanels(h-bannerHeight-1)
-	}
-	return m.dashPanels(h)
-}
-
-func (m *Model) dashPanels(h int) string {
-	if m.w >= 100 {
-		leftW := m.w * 2 / 5
-		rightW := m.w - leftW
-		topH := min(h/2, 13)
-		left := lipgloss.JoinVertical(lipgloss.Left,
-			m.profilePanel(leftW, topH), m.pushPanel(leftW, h-topH))
-		right := lipgloss.JoinVertical(lipgloss.Left,
-			m.ciPanel(rightW, topH), m.feedPanel(rightW, h-topH))
-		return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
-	}
-	// узкий терминал — всё в колонку, лента забирает остаток
-	p := m.profilePanel(m.w, 8)
-	ci := m.ciPanel(m.w, 8)
-	if h-16 >= 22 { // панель пуша — только если ленте остаётся хотя бы 12 строк
-		return lipgloss.JoinVertical(lipgloss.Left, p, ci, m.pushPanel(m.w, 10), m.feedPanel(m.w, h-26))
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, p, ci, m.feedPanel(m.w, max(h-16, 5)))
-}
 
 func (m *Model) profilePanel(w, h int) string {
 	if m.repos == nil {
@@ -530,38 +549,6 @@ func (m *Model) feedPanel(w, h int) string {
 }
 
 // ── подробности ────────────────────────────────────────────────────────────
-
-func (m *Model) openPR(p domain.PullRequest) {
-	meta := []string{
-		ui.PRState(p) + " " + ui.Bold.Render(p.State) + ui.Faint.Render("  @"+p.Author+" · обновлён "+ui.Ago(p.UpdatedAt)+" назад"),
-		ui.Info.Render(p.Head) + ui.Faint.Render(" → ") + ui.Info.Render(p.Base) + "   CI " + ui.CI(p.CIStatus) + " " + ui.Faint.Render(p.CIStatus),
-		ui.Faint.Render(p.URL),
-		"",
-	}
-	m.viewer = m.newViewer(fmt.Sprintf("#%d %s", p.Number, p.Title), p.URL, append(meta, m.wrapBody(p.Body)...))
-}
-
-func (m *Model) openIssue(i domain.Issue) {
-	labels := ""
-	for _, l := range i.Labels {
-		labels += sBadge.Render(l) + " "
-	}
-	meta := []string{
-		ui.IssueState(i) + " " + ui.Bold.Render(i.State) + ui.Faint.Render(fmt.Sprintf("  @%s · комментариев: %d · обновлён %s назад", i.Author, i.Comments, ui.Ago(i.UpdatedAt))),
-		labels,
-		ui.Faint.Render(i.URL),
-		"",
-	}
-	m.viewer = m.newViewer(fmt.Sprintf("#%d %s", i.Number, i.Title), i.URL, append(meta, m.wrapBody(i.Body)...))
-}
-
-func (m *Model) wrapBody(body string) []string {
-	body = strings.TrimSpace(strings.ReplaceAll(body, "\r\n", "\n"))
-	if body == "" {
-		return []string{ui.Faint.Render("(без описания)")}
-	}
-	return strings.Split(ansi.Wordwrap(body, max(m.w-2, 20), ""), "\n")
-}
 
 // colorBody раскрашивает подробности пуша: sha коммитов акцентом, +строки зелёным, −строки красным.
 func colorBody(body string) []string {

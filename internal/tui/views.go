@@ -30,6 +30,8 @@ func (m *Model) render() string {
 	switch {
 	case m.help:
 		body = m.helpView()
+	case m.viewer == nil && m.topPage() != nil:
+		body = m.pageView(m.topPage())
 	case m.viewer != nil:
 		body = ui.Bold.Render(fit(m.viewer.title, m.w)) + "\n" + m.viewer.vp.View()
 	default:
@@ -152,6 +154,9 @@ func (m *Model) hints() []string {
 		return []string{keyHint("enter", "выполнить"), keyHint("↑↓", "история"), keyHint("ctrl+c", "стоп"),
 			keyHint("pgup/pgdn", "листать"), esc}
 	}
+	if p := m.topPage(); p != nil && m.viewer == nil {
+		return m.pageHints(p)
+	}
 	if m.viewer != nil {
 		h := []string{keyHint("↑↓", "листать"), keyHint("o", "браузер"), keyHint("esc", "назад")}
 		if len(m.viewer.errs) > 0 {
@@ -168,7 +173,7 @@ func (m *Model) hints() []string {
 		}
 		h = []string{keyHint("enter", "git"), keyHint("d", d)}
 	case tabRepos:
-		h = []string{keyHint("enter", "выбрать"), keyHint("o", "браузер")}
+		h = []string{keyHint("enter", "страница"), keyHint("p", "его PR"), keyHint("o", "браузер")}
 	case tabPRs:
 		h = []string{keyHint("enter", "открыть"), keyHint("m", "merge"), keyHint("c", "коммент"), keyHint("s", m.prState)}
 	case tabIssues:
@@ -514,38 +519,6 @@ func (m *Model) feedPanel(w, h int) string {
 }
 
 // ── подробности ────────────────────────────────────────────────────────────
-
-func (m *Model) openPR(p domain.PullRequest) {
-	meta := []string{
-		ui.PRState(p) + " " + ui.Bold.Render(p.State) + ui.Faint.Render("  @"+p.Author+" · обновлён "+ui.Ago(p.UpdatedAt)+" назад"),
-		ui.Info.Render(p.Head) + ui.Faint.Render(" → ") + ui.Info.Render(p.Base) + "   CI " + ui.CI(p.CIStatus) + " " + ui.Faint.Render(p.CIStatus),
-		ui.Faint.Render(p.URL),
-		"",
-	}
-	m.viewer = m.newViewer(fmt.Sprintf("#%d %s", p.Number, p.Title), p.URL, append(meta, m.wrapBody(p.Body)...))
-}
-
-func (m *Model) openIssue(i domain.Issue) {
-	labels := ""
-	for _, l := range i.Labels {
-		labels += sBadge.Render(l) + " "
-	}
-	meta := []string{
-		ui.IssueState(i) + " " + ui.Bold.Render(i.State) + ui.Faint.Render(fmt.Sprintf("  @%s · комментариев: %d · обновлён %s назад", i.Author, i.Comments, ui.Ago(i.UpdatedAt))),
-		labels,
-		ui.Faint.Render(i.URL),
-		"",
-	}
-	m.viewer = m.newViewer(fmt.Sprintf("#%d %s", i.Number, i.Title), i.URL, append(meta, m.wrapBody(i.Body)...))
-}
-
-func (m *Model) wrapBody(body string) []string {
-	body = strings.TrimSpace(strings.ReplaceAll(body, "\r\n", "\n"))
-	if body == "" {
-		return []string{ui.Faint.Render("(без описания)")}
-	}
-	return strings.Split(ansi.Wordwrap(body, max(m.w-2, 20), ""), "\n")
-}
 
 // colorBody раскрашивает подробности пуша: sha коммитов акцентом, +строки зелёным, −строки красным.
 func colorBody(body string) []string {

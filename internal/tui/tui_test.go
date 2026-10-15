@@ -25,6 +25,7 @@ type fakeGH struct {
 	merged        []int
 	closed        []int
 	comments      []string
+	reviews       []string
 }
 
 var now = time.Now()
@@ -157,9 +158,9 @@ func TestScreens(t *testing.T) {
 		if s := screen(t, m, name("repos")); !strings.Contains(s, "◉ web") {
 			t.Errorf("repos:\n%s", s)
 		}
-		press(m, "enter") // выбрать первый репозиторий → вкладка PR
+		press(m, "p") // выбрать первый репозиторий → вкладка PR
 		if m.tab != tabPRs {
-			t.Fatalf("enter на репозитории должен открыть PR, вкладка %d", m.tab)
+			t.Fatalf("p на репозитории должен открыть его PR, вкладка %d", m.tab)
 		}
 		if s := screen(t, m, name("prs")); !strings.Contains(s, "Добавить кэш") {
 			t.Errorf("prs:\n%s", s)
@@ -414,5 +415,138 @@ func TestQuitWithDaemon(t *testing.T) {
 	}
 	if m.daemon2.running() {
 		t.Fatal("демон не остановился по SIGINT")
+	}
+}
+
+func (f *fakeGH) PR(_ context.Context, repo string, n int) (domain.PRDetail, error) {
+	return domain.PRDetail{
+		PullRequest: domain.PullRequest{Repo: repo, Number: n, Title: "Добавить кэш", Author: "alice", State: "open",
+			Head: "feat/cache", Base: "main", Body: "## Зачем\n\nЗапросы к **базе** медленные.\n\n- кэш на 5 минут\n- `go test` зелёный\n<!-- шаблон -->",
+			UpdatedAt: now},
+		Additions: 30, Deletions: 5, ChangedFiles: 1, Mergeable: "clean", HeadSHA: "a1b2c3d4", Labels: []string{"perf"},
+		Comments: []domain.Comment{
+			{Kind: domain.CommentPlain, Author: "bob", Body: "А TTL настраивается?", CreatedAt: now.Add(-2 * time.Hour)},
+			{Kind: domain.CommentLine, Author: "bob", Path: "cache.go", Line: 3, Body: "здесь гонка",
+				DiffHunk: "@@ -0,0 +1,3 @@\n+package cache\n+\n+var m = map[string]string{}", CreatedAt: now.Add(-time.Hour)},
+			{Kind: domain.CommentReview, Author: "carol", State: "APPROVED", CreatedAt: now},
+		},
+		Commits: []domain.Commit{{SHA: "a1b2c3d4e5", Message: "Добавить кэш\n\nподробности", Author: "alice", Date: now}},
+		Files: []domain.FileDiff{{Path: "cache.go", Status: "added", Additions: 3,
+			Patch: "@@ -0,0 +1,3 @@\n+package cache\n+\n+var m = map[string]string{}"}},
+		Checks: []domain.Check{{Name: "test", Status: "completed", Conclusion: "success", Took: 42 * time.Second}},
+	}, nil
+}
+
+func (f *fakeGH) Issue(_ context.Context, repo string, n int) (domain.IssueDetail, error) {
+	return domain.IssueDetail{
+		Issue:    domain.Issue{Repo: repo, Number: n, Title: "Падает на пустом конфиге", Author: "carol", State: "open", Body: "Шаги: `gw` без конфига", UpdatedAt: now},
+		Comments: []domain.Comment{{Kind: domain.CommentPlain, Author: "alice", Body: "воспроизвела", CreatedAt: now}},
+	}, nil
+}
+
+func (f *fakeGH) Repo(_ context.Context, repo string) (domain.RepoDetail, error) {
+	owner, name, _ := strings.Cut(repo, "/")
+	return domain.RepoDetail{
+		Repo:  domain.Repo{Owner: owner, Name: name, Description: "Backend", Stars: 12, PushedAt: now},
+		Forks: 3, DefaultBranch: "main", License: "MIT", Topics: []string{"go"},
+		Readme:    "# API\n\nСервис **заказов**.",
+		Branches:  []string{"main", "feat/cache"},
+		Commits:   []domain.Commit{{SHA: "ffff111", Message: "Свежий коммит", Author: "alice", Date: now}, {SHA: "eeee000", Message: "Старый", Author: "bob", Date: now.Add(-time.Hour)}},
+		Languages: []domain.Lang{{Name: "Go", Bytes: 900}, {Name: "Shell", Bytes: 100}},
+	}, nil
+}
+
+func (f *fakeGH) Commit(_ context.Context, _, sha string) (domain.Commit, error) {
+	return domain.Commit{SHA: sha, Message: "Свежий коммит\n\nс подробностями", Author: "alice", Date: now, Additions: 1, Deletions: 1,
+		Files: []domain.FileDiff{{Path: "main.go", Status: "modified", Additions: 1, Deletions: 1, Patch: "@@ -1,2 +1,2 @@\n package main\n-var x = 1\n+var x = 2"}}}, nil
+}
+
+func (f *fakeGH) Review(_ context.Context, _ string, _ int, event, body string) error {
+	f.reviews = append(f.reviews, event+":"+body)
+	return nil
+}
+
+func (f *fakeGH) ReopenIssue(context.Context, string, int) error { return nil }
+
+// страница PR: обсуждение в markdown, замечание к строке с куском diff, коммиты, файлы, проверки, approve
+func TestPRPage(t *testing.T) {
+	m, gh := newTestModel(t, 140, 44)
+	press(m, "3", "enter")
+	p := m.topPage()
+	if p == nil || !p.ready {
+		t.Fatal("enter на PR должен открыть его страницу")
+	}
+	s := screen(t, m, "pr page")
+	for _, want := range []string{"#7 Добавить кэш", "хочет влить 1 коммит", "+30", "можно мёржить", "perf", "Зачем", "кэш на 5 минут", "А TTL настраивается?", "cache.go:3", "здесь гонка", "одобрил(а)"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("на странице PR нет %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "шаблон") {
+		t.Error("HTML-комментарий шаблона должен быть скрыт")
+	}
+	press(m, "3")
+	if s := screen(t, m, "pr files"); !strings.Contains(s, "A cache.go") || !strings.Contains(s, "+ package cache") {
+		t.Errorf("файлы PR:\n%s", s)
+	}
+	press(m, "4")
+	if s := screen(t, m, "pr checks"); !strings.Contains(s, "test") || !strings.Contains(s, "42s") {
+		t.Errorf("проверки:\n%s", s)
+	}
+	press(m, "2", "enter") // коммит → его страница поверх PR
+	if len(m.pages) != 2 || !strings.Contains(screen(t, m, "commit"), "var x = 2") {
+		t.Fatalf("страница коммита: стопка %d", len(m.pages))
+	}
+	press(m, "esc")
+	if m.topPage() != p {
+		t.Fatal("esc должен вернуть на страницу PR")
+	}
+
+	press(m, "a", "y")
+	if len(gh.reviews) != 1 || gh.reviews[0] != "APPROVE:" {
+		t.Fatalf("approve: %v", gh.reviews)
+	}
+	press(m, "R")
+	for _, r := range "добавь тест" {
+		press(m, string(r))
+	}
+	press(m, "enter")
+	if len(gh.reviews) != 2 || gh.reviews[1] != "REQUEST_CHANGES:добавь тест" {
+		t.Fatalf("request changes: %v", gh.reviews)
+	}
+	press(m, "esc")
+	if m.topPage() != nil || m.tab != tabPRs {
+		t.Fatal("esc со страницы — обратно к списку PR")
+	}
+}
+
+func TestIssueAndRepoPages(t *testing.T) {
+	m, gh := newTestModel(t, 120, 40)
+	press(m, "4", "enter")
+	if s := screen(t, m, "issue page"); !strings.Contains(s, "Падает на пустом конфиге") || !strings.Contains(s, "воспроизвела") {
+		t.Errorf("страница issue:\n%s", s)
+	}
+	press(m, "c")
+	for _, r := range "ок" {
+		press(m, string(r))
+	}
+	press(m, "enter")
+	if len(gh.comments) != 1 || gh.comments[0] != "ок" {
+		t.Fatalf("комментарий со страницы issue: %v", gh.comments)
+	}
+	press(m, "esc", "2", "enter")
+	s := screen(t, m, "repo page")
+	for _, want := range []string{"octocat/api", "★ 12", "MIT", "Go 90%", "#go", "API", "заказов"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("на странице репозитория нет %q:\n%s", want, s)
+		}
+	}
+	press(m, "2")
+	if s := screen(t, m, "repo commits"); strings.Index(s, "Свежий коммит") > strings.Index(s, "Старый") {
+		t.Errorf("коммиты репозитория — новые сверху:\n%s", s)
+	}
+	press(m, "p")
+	if m.topPage() != nil || m.tab != tabPRs || m.repo != "octocat/api" {
+		t.Fatalf("p со страницы репозитория: вкладка %d, репо %s", m.tab, m.repo)
 	}
 }

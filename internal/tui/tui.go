@@ -87,6 +87,8 @@ type Model struct {
 	confirm   *confirm
 	viewer    *viewer
 	help      bool
+	pages     []*page // открытые страницы (PR, issue, репозиторий, коммит), сверху — последняя
+	pageSeq   int
 	term      term   // панель-терминал внизу (`:`)
 	gitTerm   term   // Dashboard: команды для git в папке репозитория
 	daemon2   term   // Dashboard: gw daemon, запущенный из TUI
@@ -232,6 +234,9 @@ func (m *Model) layout() {
 	if m.viewer != nil {
 		m.viewer.vp.SetWidth(m.w)
 		m.viewer.vp.SetHeight(m.mainHeight() - 1)
+	}
+	if p := m.topPage(); p != nil && p.ready {
+		m.rebuild(p)
 	}
 	m.term.resize(m.w-4, m.termHeight()-4)
 	m.term.in.SetWidth(max(m.w-lipgloss.Width(m.term.prompt())-6, 10))
@@ -386,6 +391,13 @@ func (m *Model) handleLoaded(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case runLogsMsg:
 		m.openLogs(msg.run, msg.text)
+	case pageMsg:
+		m.fillPage(msg)
+	case pageDoneMsg:
+		m.setFlash("✓ "+msg.text, false)
+		if p := m.pageByID(msg.id); p != nil {
+			return m, m.fetchPage(p)
+		}
 	case doneMsg:
 		m.setFlash("✓ "+msg.text, false)
 		return m, m.reload(msg.reload)
@@ -430,6 +442,10 @@ func (m *Model) wheel(msg tea.MouseWheelMsg) tea.Cmd {
 		} else {
 			t.vp.ScrollDown(d)
 		}
+		return nil
+	}
+	if p := m.topPage(); p != nil && m.viewer == nil {
+		m.pageWheel(p, d)
 		return nil
 	}
 	switch {
@@ -506,6 +522,9 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case m.viewer != nil:
 		return m.viewerKey(msg)
+	}
+	if p := m.topPage(); p != nil && k != ":" && k != "?" {
+		return m.pageKey(p, msg)
 	}
 
 	// глобальные клавиши
@@ -631,6 +650,16 @@ func (m *Model) termKey(t *term, msg tea.KeyPressMsg) tea.Cmd {
 
 // selectRepo делает репозиторий текущим и переходит к его PR.
 func (m *Model) selectRepo(repo string) tea.Cmd {
+	m.selectRepoQuiet(repo)
+	m.setFlash("репозиторий: "+repo, false)
+	return m.switchTab(tabPRs)
+}
+
+// selectRepoQuiet делает репозиторий текущим, не уходя с вкладки.
+func (m *Model) selectRepoQuiet(repo string) {
+	if repo == m.repo {
+		return
+	}
 	m.repo = repo
 	m.gitTerm.follow(repo)
 	m.prs, m.issues, m.runs = nil, nil, nil
@@ -639,8 +668,6 @@ func (m *Model) selectRepo(repo string) tea.Cmd {
 		m.lists[t] = list{}
 		m.filters[t] = ""
 	}
-	m.setFlash("репозиторий: "+repo, false)
-	return m.switchTab(tabPRs)
 }
 
 // tabKey — действия конкретной вкладки над выбранной строкой.
@@ -664,7 +691,10 @@ func (m *Model) tabKey(k string) tea.Cmd {
 		}
 		r := m.repos[vis[cur]]
 		switch k {
-		case "enter", "space":
+		case "enter", "space": // страница репозитория: README, коммиты, ветки; p / i / a — к его PR, issues, Actions
+			m.selectRepoQuiet(r.FullName())
+			return m.openRepoPage(r.FullName())
+		case "p":
 			return m.selectRepo(r.FullName())
 		case "o":
 			return openURL(r.URL)
@@ -682,7 +712,7 @@ func (m *Model) tabKey(k string) tea.Cmd {
 		p := m.prs[vis[cur]]
 		switch k {
 		case "enter", "space":
-			m.openPR(p)
+			return m.openPRPage(p.Repo, p.Number, p.Title)
 		case "o":
 			return openURL(p.URL)
 		case "m":
@@ -717,7 +747,7 @@ func (m *Model) tabKey(k string) tea.Cmd {
 		i := m.issues[vis[cur]]
 		switch k {
 		case "enter", "space":
-			m.openIssue(i)
+			return m.openIssuePage(i.Repo, i.Number, i.Title)
 		case "o":
 			return openURL(i.URL)
 		case "c":
@@ -790,6 +820,9 @@ func (m *Model) tabKey(k string) tea.Cmd {
 		e := m.events[vis[cur]]
 		switch k {
 		case "enter", "space":
+			if cmd := m.openByURL(e.Repo, e.URL, e.Title); cmd != nil { // PR и issue — их страницы
+				return cmd
+			}
 			if e.Body != "" { // у пуша — коммиты и файлы
 				m.viewer = m.newViewer(e.Repo+" · "+e.Title, e.URL, colorBody(e.Body))
 				return nil

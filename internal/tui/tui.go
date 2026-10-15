@@ -422,6 +422,13 @@ func (m *Model) handleLoaded(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case remoteFileMsg:
 		m.flash = ""
 		m.viewer = m.newViewer(msg.title, msg.url, numbered(msg.lines, 0))
+	case releaseCreatedMsg:
+		m.setFlash("✓ релиз "+msg.rel.Tag+" создан", false)
+		var refresh tea.Cmd
+		if p := m.pageByID(msg.pageID); p != nil {
+			refresh = m.fetchPage(p) // в разделе «Релизы» появится новый
+		}
+		return m, tea.Batch(refresh, m.openReleasePage(msg.repo, msg.rel))
 	case prCreatedMsg:
 		m.setFlash(fmt.Sprintf("✓ PR #%d создан", msg.pr.Number), false)
 		m.prsKey = "" // список PR перечитается при возврате

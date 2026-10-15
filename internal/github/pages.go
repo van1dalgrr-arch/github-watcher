@@ -309,6 +309,13 @@ func (c *client) Repo(ctx context.Context, repo string) (domain.RepoDetail, erro
 			d.LatestRelease = rel.GetTagName()
 			return nil
 		},
+		func() error {
+			rs, _, err := c.gh.Repositories.ListReleases(ctx, owner, name, &gh.ListOptions{PerPage: 30})
+			for _, r := range rs {
+				d.Releases = append(d.Releases, toRelease(r))
+			}
+			return notFound(err)
+		},
 	)
 	if err != nil {
 		return domain.RepoDetail{}, err
@@ -367,4 +374,33 @@ func (c *client) CreatePR(ctx context.Context, repo, head, base, title, body str
 		return domain.PullRequest{}, err
 	}
 	return domain.PullRequest{Repo: repo, Number: p.GetNumber(), Title: p.GetTitle(), URL: p.GetHTMLURL(), Head: head, Base: base, State: "open", Draft: draft}, nil
+}
+
+func toRelease(r *gh.RepositoryRelease) domain.Release {
+	rel := domain.Release{
+		Tag: r.GetTagName(), Name: r.GetName(), Body: r.GetBody(), Author: r.GetAuthor().GetLogin(),
+		Draft: r.GetDraft(), Prerelease: r.GetPrerelease(), CreatedAt: r.GetCreatedAt().Time, URL: r.GetHTMLURL(),
+	}
+	for _, a := range r.Assets {
+		rel.Assets = append(rel.Assets, domain.Asset{Name: a.GetName(), Size: int64(a.GetSize()), Downloads: a.GetDownloadCount(), URL: a.GetBrowserDownloadURL()})
+	}
+	return rel
+}
+
+// CreateRelease — релиз с тегом tag на ветке target; заметки собирает GitHub (PR и авторы с прошлого релиза).
+func (c *client) CreateRelease(ctx context.Context, repo, tag, target string, draft bool) (domain.Release, error) {
+	owner, name, err := split(repo)
+	if err != nil {
+		return domain.Release{}, err
+	}
+	generate := true
+	req := gh.CreateReleaseRequest{TagName: tag, Name: &tag, Draft: &draft, GenerateReleaseNotes: &generate}
+	if target != "" {
+		req.TargetCommitish = &target
+	}
+	r, _, err := c.gh.Repositories.CreateRelease(ctx, owner, name, req)
+	if err != nil {
+		return domain.Release{}, err
+	}
+	return toRelease(r), nil
 }

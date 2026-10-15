@@ -110,6 +110,7 @@ type RepoDetail struct {
 	Commits         []Commit // последние на ветке по умолчанию
 	Languages       []Lang   // от большего к меньшему
 	LatestRelease   string
+	Releases        []Release
 	CreatedAt       time.Time
 }
 
@@ -221,4 +222,24 @@ type SearchResult struct {
 	Users  []string
 	Code   []CodeHit
 	Totals [4]int // сколько всего нашлось: репозитории, issues и PR, люди, код
+}
+
+// Asset — файл релиза (бинарник, архив).
+type Asset struct {
+	Name      string
+	Size      int64
+	Downloads int
+	URL       string
+}
+
+// Release — релиз: тег, заметки (markdown), файлы.
+type Release struct {
+	Tag, Name  string
+	Body       string
+	Author     string
+	Draft      bool
+	Prerelease bool
+	CreatedAt  time.Time
+	URL        string
+	Assets     []Asset
 }

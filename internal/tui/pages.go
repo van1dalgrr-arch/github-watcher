@@ -383,6 +383,7 @@ func (m *Model) fillRepo(p *page, d domain.RepoDetail) {
 			{name: "README", doc: readme},
 			{name: "Коммиты", badge: count(len(d.Commits)), items: m.commitItems(repo, commits)},
 			{name: "Ветки", badge: count(len(d.Branches)), items: branches},
+			{name: "Релизы", badge: count(len(d.Releases)), items: m.releaseItems(repo, d.Releases)},
 		}
 	}
 	p.keys = []pageKey{
@@ -390,6 +391,7 @@ func (m *Model) fillRepo(p *page, d domain.RepoDetail) {
 		{"i", "issues", func(m *Model) tea.Cmd { return m.goRepoTab(repo, tabIssues) }},
 		{"a", "actions", func(m *Model) tea.Cmd { return m.goRepoTab(repo, tabActions) }},
 		{"f", "файлы", func(m *Model) tea.Cmd { return m.goRepoTab(repo, tabCode) }},
+		{"N", "новый релиз", func(m *Model) tea.Cmd { return m.askRelease(p, d) }},
 	}
 }
 

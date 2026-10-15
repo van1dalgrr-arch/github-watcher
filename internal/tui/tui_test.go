@@ -31,6 +31,7 @@ type fakeGH struct {
 	created       []string
 	cancelled     []int64
 	read, done    []string
+	releases      []string
 }
 
 var now = time.Now()
@@ -459,10 +460,13 @@ func (f *fakeGH) Repo(_ context.Context, repo string) (domain.RepoDetail, error)
 	return domain.RepoDetail{
 		Repo:  domain.Repo{Owner: owner, Name: name, Description: "Backend", Stars: 12, PushedAt: now},
 		Forks: 3, DefaultBranch: "main", License: "MIT", Topics: []string{"go"},
-		Readme:    "# API\n\nСервис **заказов**.",
-		Branches:  []string{"main", "feat/cache"},
-		Commits:   []domain.Commit{{SHA: "ffff111", Message: "Свежий коммит", Author: "alice", Date: now}, {SHA: "eeee000", Message: "Старый", Author: "bob", Date: now.Add(-time.Hour)}},
-		Languages: []domain.Lang{{Name: "Go", Bytes: 900}, {Name: "Shell", Bytes: 100}},
+		Readme:        "# API\n\nСервис **заказов**.",
+		Branches:      []string{"main", "feat/cache"},
+		Commits:       []domain.Commit{{SHA: "ffff111", Message: "Свежий коммит", Author: "alice", Date: now}, {SHA: "eeee000", Message: "Старый", Author: "bob", Date: now.Add(-time.Hour)}},
+		Languages:     []domain.Lang{{Name: "Go", Bytes: 900}, {Name: "Shell", Bytes: 100}},
+		LatestRelease: "v1.2.3",
+		Releases: []domain.Release{{Tag: "v1.2.3", Name: "Кэш", Body: "## Что нового\n\n- кэш заказов", Author: "alice", CreatedAt: now,
+			Assets: []domain.Asset{{Name: "gw_darwin_arm64.tar.gz", Size: 5 << 20, Downloads: 7}}}},
 	}, nil
 }
 
@@ -833,5 +837,46 @@ func TestSearch(t *testing.T) {
 	press(m, "enter")
 	if p := m.topPage(); p == nil || !strings.Contains(p.title, "Octo Cat") {
 		t.Fatal("enter на человеке — его профиль")
+	}
+}
+
+func (f *fakeGH) CreateRelease(_ context.Context, _, tag, target string, draft bool) (domain.Release, error) {
+	f.releases = append(f.releases, fmt.Sprintf("%s@%s draft=%v", tag, target, draft))
+	return domain.Release{Tag: tag, Name: tag, Body: "## What's Changed\n* кэш", Draft: draft, CreatedAt: now}, nil
+}
+
+func TestNextVersion(t *testing.T) {
+	for in, want := range map[string]string{"v1.2.3": "v1.2.4", "0.9.9": "0.9.10", "": "v0.1.0", "nightly": "v0.1.0"} {
+		if got := nextVersion(in); got != want {
+			t.Errorf("nextVersion(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// релизы на странице репозитория: заметки и файлы; N — новый (версия подставлена), d — черновиком
+func TestReleases(t *testing.T) {
+	m, gh := newTestModel(t, 140, 40)
+	press(m, "2", "enter", "4")
+	if s := screen(t, m, "releases"); !strings.Contains(s, "v1.2.3") || !strings.Contains(s, "Кэш") {
+		t.Errorf("раздел релизов:\n%s", s)
+	}
+	press(m, "enter")
+	if s := screen(t, m, "release"); !strings.Contains(s, "Что нового") || !strings.Contains(s, "кэш заказов") {
+		t.Errorf("страница релиза:\n%s", s)
+	}
+	press(m, "2")
+	if s := screen(t, m, "release assets"); !strings.Contains(s, "gw_darwin_arm64.tar.gz") || !strings.Contains(s, "5.0 МБ") {
+		t.Errorf("файлы релиза:\n%s", s)
+	}
+	press(m, "esc", "N")
+	if m.prompt == nil || m.prompt.in.Value() != "v1.2.4" {
+		t.Fatalf("версия не подставлена: %+v", m.prompt)
+	}
+	press(m, "enter", "d")
+	if len(gh.releases) != 1 || gh.releases[0] != "v1.2.4@main draft=true" {
+		t.Fatalf("создан релиз: %v", gh.releases)
+	}
+	if p := m.topPage(); p == nil || !strings.Contains(p.title, "v1.2.4") {
+		t.Fatal("после создания — страница нового релиза")
 	}
 }

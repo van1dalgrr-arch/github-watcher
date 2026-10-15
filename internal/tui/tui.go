@@ -311,7 +311,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ticks++
 		cmds := []tea.Cmd{tick(), m.loadDaemon()}
 		// «живые» данные: Actions с незавершёнными запусками — каждые 10 с, остальное — раз в минуту
-		if m.tab == tabActions && m.hasPending() && m.ticks%2 == 0 {
+		if p := m.topPage(); p != nil && p.live && p.ready && m.ticks%2 == 0 {
+			cmds = append(cmds, m.fetchPage(p)) // идущий запуск: job-ы и шаги обновляются сами
+		} else if m.tab == tabActions && m.hasPending() && m.ticks%2 == 0 {
 			cmds = append(cmds, m.loadRuns())
 		} else if m.ticks%12 == 0 && m.viewer == nil {
 			cmds = append(cmds, m.reload(m.tab))
@@ -791,12 +793,17 @@ func (m *Model) tabKey(k string) tea.Cmd {
 		}
 
 	case tabActions:
+		if k == "w" {
+			return m.openWorkflowsPage(m.repo)
+		}
 		if !has {
 			return nil
 		}
 		r := m.runs[vis[cur]]
 		switch k {
-		case "enter", "space":
+		case "enter", "space": // страница запуска: job-ы, шаги, артефакты
+			return m.openRunPage(r)
+		case "L":
 			m.setFlash("загружаю логи "+r.Name+"…", false)
 			return m.loadRunLogs(r)
 		case "o":

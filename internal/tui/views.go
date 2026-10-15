@@ -181,7 +181,7 @@ func (m *Model) hints() []string {
 	case tabIssues:
 		h = []string{keyHint("n", "новый"), keyHint("x", "закрыть"), keyHint("c", "коммент"), keyHint("s", m.issueState)}
 	case tabActions:
-		h = []string{keyHint("enter", "логи"), keyHint("R", "перезапуск"), keyHint("f", "упавшие")}
+		h = []string{keyHint("enter", "запуск"), keyHint("L", "лог"), keyHint("w", "запустить workflow"), keyHint("R", "перезапуск"), keyHint("f", "упавшие")}
 	case tabEvents:
 		h = []string{keyHint("enter", "подробности"), keyHint("o", "браузер"), keyHint("f", "к репо")}
 	case tabCode:

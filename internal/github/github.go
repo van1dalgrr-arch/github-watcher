@@ -37,6 +37,14 @@ type Client interface {
 	ReopenIssue(ctx context.Context, repo string, number int) error
 	CreatePR(ctx context.Context, repo, head, base, title, body string, draft bool) (domain.PullRequest, error)
 
+	// Actions: страница запуска, лог job-а, отмена, артефакты, ручной запуск
+	Run(ctx context.Context, repo string, runID int64) (domain.RunDetail, error)
+	JobLog(ctx context.Context, repo string, jobID int64) (string, error)
+	CancelRun(ctx context.Context, repo string, runID int64) error
+	DownloadArtifact(ctx context.Context, repo string, id int64, name, dir string) (string, error)
+	Workflows(ctx context.Context, repo string) ([]domain.Workflow, error)
+	Dispatch(ctx context.Context, repo string, workflowID int64, ref string) error
+
 	// для watcher-а: всё новое с момента since (Events + Notifications + Actions)
 	EventsSince(ctx context.Context, since time.Time) ([]domain.Event, error)
 

@@ -29,6 +29,7 @@ type fakeGH struct {
 	comments      []string
 	reviews       []string
 	created       []string
+	cancelled     []int64
 }
 
 var now = time.Now()
@@ -172,7 +173,7 @@ func TestScreens(t *testing.T) {
 		screen(t, m, name("issues"))
 		press(m, "5")
 		screen(t, m, name("actions"))
-		press(m, "enter")
+		press(m, "L")
 		if s := screen(t, m, name("run logs")); !strings.Contains(s, "Process completed with exit code 1") {
 			t.Errorf("логи:\n%s", s)
 		}
@@ -623,5 +624,72 @@ func TestHumanBranch(t *testing.T) {
 		if got := humanBranch(in); got != want {
 			t.Errorf("humanBranch(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func (f *fakeGH) Run(_ context.Context, repo string, id int64) (domain.RunDetail, error) {
+	st, concl := "completed", "failure"
+	if id == 2 {
+		st, concl = "in_progress", ""
+	}
+	return domain.RunDetail{
+		WorkflowRun: domain.WorkflowRun{Repo: repo, ID: id, Name: "ci", Branch: "main", HeadSHA: "abc1234", Event: "push", Title: "Добавить кэш", Status: st, Conclusion: concl, UpdatedAt: now},
+		Actor:       "alice", Took: 95 * time.Second,
+		Jobs: []domain.Job{
+			{ID: 11, Name: "lint", Status: "completed", Conclusion: "success", Took: 20 * time.Second,
+				Steps: []domain.Step{{Name: "golangci-lint", Status: "completed", Conclusion: "success", Took: 15 * time.Second}}},
+			{ID: 12, Name: "test", Status: st, Conclusion: concl, Took: 75 * time.Second,
+				Steps: []domain.Step{{Name: "go test", Status: st, Conclusion: concl, Took: 70 * time.Second}}},
+		},
+		Artifacts: []domain.Artifact{{ID: 5, Name: "coverage", Size: 3 << 20}},
+	}, nil
+}
+
+func (f *fakeGH) JobLog(context.Context, string, int64) (string, error) {
+	return "go test ./...\n--- FAIL: TestCache\n##[error]Process completed with exit code 1.\n", nil
+}
+
+func (f *fakeGH) CancelRun(_ context.Context, _ string, id int64) error {
+	f.cancelled = append(f.cancelled, id)
+	return nil
+}
+
+// страница запуска: job-ы с упавшим шагом, шаги, лог job-а, артефакты; идущий запуск — X отменяет
+func TestRunPage(t *testing.T) {
+	m, gh := newTestModel(t, 140, 40)
+	press(m, "5", "j", "enter") // второй в списке — упавший ci
+	s := screen(t, m, "run page")
+	for _, want := range []string{"ci", "@alice", "1m35s", "lint", "test", "упал: go test"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("на странице запуска нет %q:\n%s", want, s)
+		}
+	}
+	press(m, "2")
+	if s := screen(t, m, "run steps"); !strings.Contains(s, "golangci-lint") || !strings.Contains(s, "1m10s") {
+		t.Errorf("шаги:\n%s", s)
+	}
+	press(m, "3")
+	if s := screen(t, m, "run artifacts"); !strings.Contains(s, "coverage") || !strings.Contains(s, "3.0 МБ") {
+		t.Errorf("артефакты:\n%s", s)
+	}
+	press(m, "1", "j", "enter") // лог упавшего job-а — с переходом к ошибке
+	if m.viewer == nil || len(m.viewer.errs) == 0 {
+		t.Fatal("enter на job-е — его лог с ошибками")
+	}
+	press(m, "esc")
+	if m.viewer != nil || m.topPage() == nil {
+		t.Fatal("esc из лога — обратно на страницу запуска")
+	}
+	press(m, "X")
+	if m.confirm != nil {
+		t.Fatal("законченный запуск отменять нечего")
+	}
+	press(m, "esc", "j", "enter") // идущий deploy
+	if p := m.topPage(); p == nil || !p.live {
+		t.Fatal("идущий запуск должен обновляться сам")
+	}
+	press(m, "X", "y")
+	if len(gh.cancelled) != 1 || gh.cancelled[0] != 2 {
+		t.Fatalf("отмена: %v", gh.cancelled)
 	}
 }

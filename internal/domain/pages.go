@@ -112,3 +112,49 @@ type RepoDetail struct {
 	LatestRelease   string
 	CreatedAt       time.Time
 }
+
+// Step — шаг job-а Actions.
+type Step struct {
+	Name               string
+	Status, Conclusion string
+	Took               time.Duration
+}
+
+// Job — job запуска: шаги и время.
+type Job struct {
+	ID                 int64
+	Name               string
+	Status, Conclusion string
+	Took               time.Duration
+	URL                string
+	Steps              []Step
+}
+
+// State — success / failure / pending / "".
+func (j Job) State() string { return RunState(j.Status, j.Conclusion) }
+
+// Artifact — файл, который сохранил запуск (бинарники, отчёты покрытия…).
+type Artifact struct {
+	ID      int64
+	Name    string
+	Size    int64
+	Expired bool
+}
+
+// RunDetail — страница запуска Actions.
+type RunDetail struct {
+	WorkflowRun
+	Actor     string
+	Attempt   int
+	Took      time.Duration
+	Jobs      []Job
+	Artifacts []Artifact
+}
+
+// Workflow — workflow репозитория (файл в .github/workflows).
+type Workflow struct {
+	ID    int64
+	Name  string
+	Path  string
+	State string // active, disabled_manually…
+}

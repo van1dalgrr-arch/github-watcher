@@ -24,6 +24,7 @@ type page struct {
 	cur      int
 	err      string
 	ready    bool
+	live     bool // что-то ещё идёт (запуск Actions) — обновлять раз в 10 секунд
 
 	build func(p *page, w int)                             // перестроить содержимое под ширину (данные уже в замыкании)
 	keys  []pageKey                                        // действия страницы: approve, merge, комментарий…

@@ -55,6 +55,7 @@ func New() *cobra.Command {
 	root.AddCommand(
 		daemonCmd(&cfg),
 		telegramCmd(&cfg),
+		botCmd(&cfg),
 		notifyCmd(&cfg),
 		statusCmd(&cfg),
 		eventsCmd(&cfg),

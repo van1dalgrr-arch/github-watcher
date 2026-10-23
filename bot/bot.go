@@ -8,17 +8,21 @@ import (
 )
 
 func Run(token string) error {
-	bot, err := tele.NewBot(tele.Settings{
-		Token:  token,
-		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
+	b, err := tele.NewBot(tele.Settings{
+		Token: token,
+		Poller: &tele.LongPoller{
+			Timeout: 10 * time.Second,
+		},
 	})
 	if err != nil {
 		return err
 	}
-	bot.Handle("/start", command.Start)
-	bot.Handle("/help", command.Help)
 
-	bot.Start()
+	b.Handle("/start", command.Start)
+	b.Handle("/help", command.Help)
+	b.Handle("/repos", command.Repos)
+
+	b.Start()
 
 	return nil
 }

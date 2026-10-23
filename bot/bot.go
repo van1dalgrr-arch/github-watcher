@@ -3,6 +3,7 @@ package bot
 import (
 	"time"
 
+	"github.com/van1dalgrr-arch/github-watcher/bot/internal/command"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -14,10 +15,9 @@ func Run(token string) error {
 	if err != nil {
 		return err
 	}
+	bot.Handle("/start", command.Start)
+	bot.Handle("/help", command.Help)
 
-	bot.Handle("/start", func(c tele.Context) error {
-		return c.Send("Привет! я github-Watcher, я наблюдаю за событиями Github аккаунта (van1dal-arch)")
-	})
 	bot.Start()
 
 	return nil
